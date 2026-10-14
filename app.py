@@ -37,7 +37,6 @@ if not st.session_state.logged_in:
             else:
                 try:
                     clean_username = username_input.strip().lower()
-                    # Sử dụng cú pháp bảng Supabase thay cho lệnh query SQL
                     res = execute_query(
                         conn.table("users").select("*").eq("username", clean_username),
                         ttl=0
@@ -69,7 +68,7 @@ else:
 
     menu = ["📊 Báo cáo tổng quan", "⏱️ Log thời gian công việc"]
     if st.session_state.role == "Quản lý":
-        menu.insert(1, "📁 Quản lý & Tạo dự án (Quản lý)")
+        menu.insert(1, "📁 Quản lý & Cập nhật Dự án")
         menu.insert(2, "➕ Giao việc mới (Quản lý)")
         menu.insert(3, "🔀 Phân tích Chồng chéo & Phân bổ")
         menu.append("👤 Quản lý nhân sự (Quản lý)")
@@ -109,46 +108,146 @@ else:
         except Exception as e:
             st.error(f"Lỗi tải báo cáo: {e}")
 
-    # --- CHỨC NĂNG: QUẢN LÝ & TẠO DỰ ÁN ---
-    elif choice == "📁 Quản lý & Tạo dự án (Quản lý)":
-        st.subheader("Quản lý Danh mục Dự án")
+    # --- CHỨC NĂNG: QUẢN LÝ, CHỈNH SỬA & XÓA DỰ ÁN + NHIỆM VỤ ---
+    elif choice == "📁 Quản lý & Cập nhật Dự án":
+        st.subheader("Quản lý Danh mục Dự án & Nhiệm vụ")
 
         try:
             res_pj = execute_query(conn.table("projects").select("*").order("id", desc=True), ttl=0)
             df_pj = pd.DataFrame(res_pj.data) if res_pj.data else pd.DataFrame()
 
-            if not df_pj.empty:
-                st.write("📋 **Danh sách Dự án đang triển khai:**")
-                st.dataframe(df_pj, use_container_width=True)
-            else:
-                st.info("Chưa có dự án nào được khởi tạo.")
+            tab_list, tab_edit, tab_tasks = st.tabs(["📋 Danh sách dự án", "✏️ Sửa / Xóa Dự án", "🛠️ Quản lý Nhiệm vụ"])
 
-            st.markdown("---")
-            st.write("➕ **Khởi tạo Dự án mới:**")
-            with st.form("create_project_form", clear_on_submit=True):
-                p_name = st.text_input("Tên dự án mới", placeholder="Ví dụ: Dự án Tòa nhà A, Dự án Cầu B...")
-                col_d1, col_d2 = st.columns(2)
-                with col_d1:
-                    start_d = st.date_input("Ngày bắt đầu dự án", datetime.now())
-                with col_d2:
-                    end_d = st.date_input("Ngày kết thúc dự kiến", datetime.now())
+            with tab_list:
+                if not df_pj.empty:
+                    st.dataframe(df_pj, use_container_width=True)
+                else:
+                    st.info("Chưa có dự án nào được khởi tạo.")
+                
+                st.markdown("---")
+                st.write("➕ **Khởi tạo Dự án mới:**")
+                with st.form("create_project_form", clear_on_submit=True):
+                    p_name = st.text_input("Tên dự án mới", placeholder="Ví dụ: Dự án Tòa nhà A...")
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1:
+                        start_d = st.date_input("Ngày bắt đầu dự án", datetime.now())
+                    with col_d2:
+                        end_d = st.date_input("Ngày kết thúc dự kiến", datetime.now())
 
-                if st.form_submit_button("Tạo Dự án"):
-                    if not p_name.strip():
-                        st.error("Tên dự án không được để trống!")
-                    elif start_d > end_d:
-                        st.error("Ngày bắt đầu không được lớn hơn ngày kết thúc dự kiến!")
-                    else:
-                        conn.table("projects").insert({
-                            "project_name": p_name.strip(),
-                            "start_date": str(start_d),
-                            "end_date": str(end_d),
-                            "status": "Đang triển khai"
-                        }).execute()
-                        st.success(f"Đã tạo thành công dự án '{p_name}'!")
+                    if st.form_submit_button("Tạo Dự án"):
+                        if not p_name.strip():
+                            st.error("Tên dự án không được để trống!")
+                        elif start_d > end_d:
+                            st.error("Ngày bắt đầu không được lớn hơn ngày kết thúc dự kiến!")
+                        else:
+                            conn.table("projects").insert({
+                                "project_name": p_name.strip(),
+                                "start_date": str(start_d),
+                                "end_date": str(end_d),
+                                "status": "Đang triển khai"
+                            }).execute()
+                            st.success(f"Đã tạo thành công dự án '{p_name}'!")
+                            st.rerun()
+
+            with tab_edit:
+                if df_pj.empty:
+                    st.warning("Không có dự án nào để chỉnh sửa.")
+                else:
+                    selected_pj_name = st.selectbox("Chọn dự án cần chỉnh sửa hoặc xóa:", df_pj['project_name'].tolist())
+                    pj_info = df_pj[df_pj['project_name'] == selected_pj_name].iloc[0]
+                    pj_id = int(pj_info['id'])
+
+                    with st.form("update_project_form"):
+                        new_p_name = st.text_input("Tên dự án", value=pj_info['project_name'])
+                        
+                        # Chuyển đổi định dạng ngày an toàn
+                        default_start = datetime.strptime(pj_info['start_date'], "%Y-%m-%d").date() if pj_info['start_date'] else datetime.now().date()
+                        default_end = datetime.strptime(pj_info['end_date'], "%Y-%m-%d").date() if pj_info['end_date'] else datetime.now().date()
+                        
+                        c_u1, c_u2 = st.columns(2)
+                        with c_u1:
+                            new_start_d = st.date_input("Ngày bắt đầu", value=default_start)
+                        with c_u2:
+                            new_end_d = st.date_input("Ngày kết thúc dự kiến", value=default_end)
+                        
+                        status_options = ["Đang triển khai", "Tạm dừng", "Hoàn thành"]
+                        current_status_idx = status_options.index(pj_info['status']) if pj_info['status'] in status_options else 0
+                        new_status = st.selectbox("Trạng thái dự án", status_options, index=current_status_idx)
+
+                        submitted_update = st.form_submit_button("Lưu thay đổi dự án")
+                        if submitted_update:
+                            conn.table("projects").update({
+                                "project_name": new_p_name.strip(),
+                                "start_date": str(new_start_d),
+                                "end_date": str(new_end_d),
+                                "status": new_status
+                            }).eq("id", pj_id).execute()
+                            
+                            # Nếu tên dự án đổi, cập nhật luôn sang bảng tasks để đồng bộ
+                            if new_p_name.strip() != selected_pj_name:
+                                conn.table("tasks").update({"project": new_p_name.strip()}).eq("project", selected_pj_name).execute()
+
+                            st.success(f"Đã cập nhật thông tin dự án '{new_p_name}' thành công!")
+                            st.rerun()
+
+                    st.markdown("---")
+                    st.error("⚠️ **Khu vực nguy hiểm (Xóa dự án):**")
+                    if st.button("🗑️ Xóa vĩnh viễn dự án này"):
+                        # Xóa dự án và các task liên quan
+                        conn.table("tasks").delete().eq("project", selected_pj_name).execute()
+                        conn.table("projects").delete().eq("id", pj_id).execute()
+                        st.success(f"Đã xóa dự án '{selected_pj_name}' và toàn bộ các nhiệm vụ liên quan!")
                         st.rerun()
+
+            with tab_tasks:
+                res_all_tasks = execute_query(conn.table("tasks").select("*"), ttl=0)
+                df_all_tasks = pd.DataFrame(res_all_tasks.data) if res_all_tasks.data else pd.DataFrame()
+
+                if df_all_tasks.empty:
+                    st.info("Chưa có nhiệm vụ nào trên hệ thống.")
+                else:
+                    st.write("📋 **Danh sách tất cả nhiệm vụ (Có thể chỉnh sửa hoặc xóa):**")
+                    
+                    task_select_label = df_all_tasks.apply(lambda r: f"[ID: {r['id']}] [{r['project']}] {r['task_name']} ({r['assignee']})", axis=1).tolist()
+                    chosen_task_str = st.selectbox("Chọn đầu việc để chỉnh sửa/xóa:", task_select_label)
+                    
+                    # Lấy ID nhiệm vụ từ chuỗi lựa chọn
+                    chosen_task_id = int(chosen_task_str.split("]")[0].replace("[ID: ", ""))
+                    task_row = df_all_tasks[df_all_tasks['id'] == chosen_task_id].iloc[0]
+
+                    with st.form("edit_single_task_form"):
+                        ed_task_name = st.text_input("Tên đầu việc", value=task_row['task_name'])
+                        ed_status = st.selectbox("Trạng thái", ["Chưa bắt đầu", "Đang làm", "Hoàn thành"], index=["Chưa bắt đầu", "Đang làm", "Hoàn thành"].index(task_row['status']))
+                        ed_hours = st.number_input("Số giờ đã làm", value=float(task_row['hours_spent']), min_value=0.0, step=0.5)
+                        
+                        t_start_default = datetime.strptime(task_row['start_date'], "%Y-%m-%d").date() if task_row.get('start_date') else datetime.now().date()
+                        t_end_default = datetime.strptime(task_row['end_date'], "%Y-%m-%d").date() if task_row.get('end_date') else datetime.now().date()
+
+                        col_ts1, col_ts2 = st.columns(2)
+                        with col_ts1:
+                            ed_start_date = st.date_input("Ngày bắt đầu công việc", value=t_start_default)
+                        with col_ts2:
+                            ed_end_date = st.date_input("Ngày kết thúc dự kiến", value=t_end_default)
+
+                        if st.form_submit_button("Cập nhật nhiệm vụ này"):
+                            conn.table("tasks").update({
+                                "task_name": ed_task_name.strip(),
+                                "status": ed_status,
+                                "hours_spent": ed_hours,
+                                "start_date": str(ed_start_date),
+                                "end_date": str(ed_end_date),
+                                "date_updated": datetime.now().strftime("%Y-%m-%d")
+                            }).eq("id", chosen_task_id).execute()
+                            st.success("Đã cập nhật nhiệm vụ thành công!")
+                            st.rerun()
+
+                    if st.button("🗑️ Xóa nhiệm vụ này"):
+                        conn.table("tasks").delete().eq("id", chosen_task_id).execute()
+                        st.success(f"Đã xóa nhiệm vụ ID: {chosen_task_id} thành công!")
+                        st.rerun()
+
         except Exception as e:
-            st.error(f"Lỗi khi quản lý dự án: {e}")
+            st.error(f"Lỗi quản lý dự án: {e}")
 
     # --- CHỨC NĂNG: GIAO VIỆC MỚI ---
     elif choice == "➕ Giao việc mới (Quản lý)":
@@ -164,7 +263,7 @@ else:
             if not staff_list:
                 st.warning("Chưa có nhân viên nào trên hệ thống. Vui lòng thêm nhân viên trước.")
             elif not project_list:
-                st.warning("Chưa có dự án nào đang mở. Vui lòng vào mục 'Quản lý & Tạo dự án' để thêm dự án trước.")
+                st.warning("Chưa có dự án nào đang mở. Vui lòng vào mục 'Quản lý & Cập nhật Dự án' để thêm dự án trước.")
             else:
                 with st.form("add_task_form"):
                     project_select = st.selectbox("Chọn Dự án:", project_list)
