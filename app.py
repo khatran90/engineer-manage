@@ -4,6 +4,9 @@ from datetime import datetime
 import plotly.express as px
 from st_supabase_connection import SupabaseConnection
 
+# --- CẤU HÌNH TRANG (BẮT BUỘC ĐẶT ĐẦU TIÊN CỦA FILE) ---
+st.set_page_config(page_title="Hệ thống Quản lý Dự án", layout="wide")
+
 # --- 1. KẾT NỐI DATABASE ĐÁM MÂY SUPABASE ---
 conn = st.connection(
     "supabase",
@@ -21,7 +24,6 @@ if "logged_in" not in st.session_state:
 
 # --- 3. GIAO DIỆN ĐĂNG NHẬP ---
 if not st.session_state.logged_in:
-    st.set_page_config(page_title="Đăng nhập hệ thống", layout="centered")
     st.title("🔑 Đăng nhập Hệ thống Dự án")
     
     with st.form("login_form"):
@@ -58,7 +60,6 @@ if not st.session_state.logged_in:
                     st.error(f"Lỗi hệ thống khi đăng nhập: {e}")
 else:
     # --- 4. GIAO DIỆN CHÍNH SAU KHI ĐĂNG NHẬP THÀNH CÔNG ---
-    st.set_page_config(page_title="Hệ thống Quản lý Dự án", layout="wide")
     
     # Thanh điều hướng Sidebar trái
     st.sidebar.title(f"👋 Chào, {st.session_state.name}")
