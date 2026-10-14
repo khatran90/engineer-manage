@@ -6,7 +6,6 @@ from st_supabase_connection import SupabaseConnection
 import os
 
 # --- 1. KẾT NỐI DATABASE ĐÁM MÂY SUPABASE ---
-# Hệ thống tự động đọc thông tin từ mục Secrets viết hoa bạn đã cấu hình
 conn = st.connection(
     "supabase",
     type=SupabaseConnection,
@@ -38,8 +37,11 @@ if not st.session_state.logged_in:
                 try:
                     # Truy vấn tìm tài khoản trong bảng 'users' trên Supabase
                     res = conn.table("users").select("*").eq("username", username_input.strip().lower()).execute()
+                    
+                    # SỬA ĐÚNG LOGIC ĐỌC PHẦN TỬ TRONG MẢNG (LIST DATA):
                     if res.data and len(res.data) > 0:
-                        user_info = res.data[0]
+                        user_info = res.data[0]  # Thêm chỉ mục [0] để lấy bản ghi đầu tiên trả về
+                        
                         # Kiểm tra mật khẩu (so sánh chuỗi thuần)
                         if str(user_info["password"]) == str(password_input):
                             st.session_state.logged_in = True
@@ -53,7 +55,7 @@ if not st.session_state.logged_in:
                     else:
                         st.error("Tài khoản này không tồn tại trên hệ thống!")
                 except Exception as e:
-                    st.error("Lỗi kết nối Cơ sở dữ liệu. Hãy đảm bảo bạn đã tạo bảng 'users' trên Supabase.")
+                    st.error(f"Lỗi hệ thống: {e}")
 else:
     # --- 4. GIAO DIỆN CHÍNH SAU KHI ĐĂNG NHẬP THÀNH CÔNG ---
     st.set_page_config(page_title="Hệ thống Quản lý Dự án", layout="wide")
