@@ -42,10 +42,8 @@ translations = {
         "logout_btn": "🔓 Đăng xuất",
         "hello": "👋 Chào",
         "role": "Vai trò",
-        # Role names
         "role_manager": "Quản lý",
         "role_staff": "Nhân viên",
-        # Status names
         "st_not_started": "Chưa bắt đầu",
         "st_in_progress": "Đang làm",
         "st_completed": "Hoàn thành",
@@ -58,6 +56,9 @@ translations = {
         "menu_change_pw": "🔑 Đổi mật khẩu cá nhân",
         "menu_user_mgmt": "👤 Quản lý nhân sự (Quản lý)",
         "main_title": "📋 Hệ thống Quản lý Dự án & Tiến độ Nhân sự",
+        "filter_project": "🔍 Lọc theo Dự án:",
+        "filter_staff": "👤 Lọc theo Nhân sự:",
+        "all": "Tất cả (All)",
     },
     "English": {
         "lang_label": "🌐 Language / Ngôn ngữ",
@@ -74,10 +75,8 @@ translations = {
         "logout_btn": "🔓 Logout",
         "hello": "👋 Hello",
         "role": "Role",
-        # Role names
         "role_manager": "Manager",
         "role_staff": "Staff",
-        # Status names
         "st_not_started": "Not Started",
         "st_in_progress": "In Progress",
         "st_completed": "Completed",
@@ -90,6 +89,9 @@ translations = {
         "menu_change_pw": "🔑 Change Password",
         "menu_user_mgmt": "👤 User Management (Manager)",
         "main_title": "📋 Project Management & Staff Progress System",
+        "filter_project": "🔍 Filter by Project:",
+        "filter_staff": "👤 Filter by Staff:",
+        "all": "All",
     }
 }
 
@@ -145,7 +147,6 @@ else:
 
     t = translations[st.session_state.lang]
 
-    # Hiển thị vai trò theo ngôn ngữ
     display_role = t["role_manager"] if st.session_state.role in ["Quản lý", "Manager"] else t["role_staff"]
 
     st.sidebar.title(f"{t['hello']}, {st.session_state.name}")
@@ -155,7 +156,6 @@ else:
         st.session_state.name, st.session_state.role, st.session_state.username = "", "", ""
         st.rerun()
 
-    # Xây dựng Menu chung (Tất cả mọi user đều xem được Overview, Overlap, Time Log, Đổi mật khẩu)
     menu = [
         t["menu_overview"], 
         t["menu_overlap"], 
@@ -163,7 +163,6 @@ else:
         t["menu_change_pw"]
     ]
     
-    # Riêng Quản lý có thêm các quyền quản lý dự án, giao việc, quản lý nhân sự
     if st.session_state.role in ["Quản lý", "Manager"]:
         menu.insert(1, t["menu_project_mgmt"])
         menu.insert(2, t["menu_add_task"])
@@ -172,9 +171,9 @@ else:
     choice = st.sidebar.selectbox("Function / Chức năng", menu)
     st.title(t["main_title"])
 
-    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN ---
+    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN (DASHBOARD NÂNG CẤP + BỘ LỌC) ---
     if choice == t["menu_overview"]:
-        st.subheader("Overview Report & Project Progress" if st.session_state.lang == "English" else "Bảng số liệu tổng quan & Tiến độ dự án")
+        st.subheader("Overview Report & Advanced Dashboard" if st.session_state.lang == "English" else "Bảng số liệu tổng quan & Dashboard Nâng cao")
         try:
             res_tasks = execute_query(conn.table("tasks").select("*"), ttl=0)
             df = pd.DataFrame(res_tasks.data) if res_tasks.data else pd.DataFrame()
@@ -182,31 +181,89 @@ else:
             if df.empty:
                 st.info("No task data available." if st.session_state.lang == "English" else "Hiện tại chưa có dữ liệu công việc nào.")
             else:
-                # Đổi tên trạng thái hiển thị trên biểu đồ nếu là tiếng Anh
-                if st.session_state.lang == "English":
-                    status_map_en = {"Chưa bắt đầu": "Not Started", "Đang làm": "In Progress", "Hoàn thành": "Completed"}
-                    df['status'] = df['status'].map(status_map_en).fillna(df['status'])
-
-                kpi1, kpi2, kpi3 = st.columns(3)
-                kpi1.metric("Total Projects" if st.session_state.lang == "English" else "Tổng số lượng dự án", df['project'].nunique())
-                kpi2.metric("Total Hours Spent" if st.session_state.lang == "English" else "Tổng thời gian đã cống hiến", f"{df['hours_spent'].sum():.1f} hrs" if st.session_state.lang == "English" else f"{df['hours_spent'].sum():.1f} giờ")
-                completed_count = len(df[df['status'].isin(['Hoàn thành', 'Completed'])])
-                kpi3.metric("Completed Tasks" if st.session_state.lang == "English" else "Số việc hoàn thành", f"{completed_count}/{len(df)}")
-
+                # --- KHU VỰC BỘ LỌC TOÀN CỤC CHO DASHBOARD ---
                 st.markdown("---")
-                c1, c2 = st.columns(2)
-                with c1:
-                    df_bar = df.groupby('project')['hours_spent'].sum().reset_index()
-                    fig_bar = px.bar(df_bar, x='project', y='hours_spent', title="Total Hours by Project" if st.session_state.lang == "English" else "Tổng giờ làm theo từng Dự án", color='project')
-                    st.plotly_chart(fig_bar, use_container_width=True)
-                with c2:
-                    df_pie = df['status'].value_counts().reset_index()
-                    fig_pie = px.pie(df_pie, names='status', values='count', title="Task Status Distribution" if st.session_state.lang == "English" else "Tỷ trọng trạng thái công việc")
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                col_f1, col_f2 = st.columns(2)
+                projects_list = [t["all"]] + sorted(df['project'].unique().tolist())
+                staff_list_filter = [t["all"]] + sorted(df['assignee'].unique().tolist())
 
-                st.markdown("---")
-                st.write("📋 **Detailed Task List:**" if st.session_state.lang == "English" else "📋 **Danh sách chi tiết công việc:**")
-                st.dataframe(df, use_container_width=True)
+                with col_f1:
+                    selected_proj_filter = st.selectbox(t["filter_project"], projects_list)
+                with col_f2:
+                    selected_staff_filter = st.selectbox(t["filter_staff"], staff_list_filter)
+
+                # Áp dụng bộ lọc
+                df_filtered = df.copy()
+                if selected_proj_filter != t["all"]:
+                    df_filtered = df_filtered[df_filtered['project'] == selected_proj_filter]
+                if selected_staff_filter != t["all"]:
+                    df_filtered = df_filtered[df_filtered['assignee'] == selected_staff_filter]
+
+                if df_filtered.empty:
+                    st.warning("Không có dữ liệu phù hợp với bộ lọc đã chọn.")
+                else:
+                    if st.session_state.lang == "English":
+                        status_map_en = {"Chưa bắt đầu": "Not Started", "Đang làm": "In Progress", "Hoàn thành": "Completed"}
+                        df_filtered['status'] = df_filtered['status'].map(status_map_en).fillna(df_filtered['status'])
+
+                    # KPI Cards
+                    kpi1, kpi2, kpi3 = st.columns(3)
+                    kpi1.metric("Total Projects" if st.session_state.lang == "English" else "Tổng số lượng dự án", df_filtered['project'].nunique())
+                    kpi2.metric("Total Hours Spent" if st.session_state.lang == "English" else "Tổng thời gian đã cống hiến", f"{df_filtered['hours_spent'].sum():.1f} hrs" if st.session_state.lang == "English" else f"{df_filtered['hours_spent'].sum():.1f} giờ")
+                    completed_count = len(df_filtered[df_filtered['status'].isin(['Hoàn thành', 'Completed'])])
+                    kpi3.metric("Completed Tasks" if st.session_state.lang == "English" else "Số việc hoàn thành", f"{completed_count}/{len(df_filtered)}")
+
+                    st.markdown("---")
+
+                    # Biểu đồ phân bổ
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        df_bar = df_filtered.groupby('project')['hours_spent'].sum().reset_index()
+                        fig_bar = px.bar(df_bar, x='project', y='hours_spent', title="Total Hours by Project" if st.session_state.lang == "English" else "Tổng giờ làm theo từng Dự án", color='project')
+                        st.plotly_chart(fig_bar, use_container_width=True)
+                    with c2:
+                        df_pie = df_filtered['status'].value_counts().reset_index()
+                        fig_pie = px.pie(df_pie, names='status', values='count', title="Task Status Distribution" if st.session_state.lang == "English" else "Tỷ trọng trạng thái công việc")
+                        st.plotly_chart(fig_pie, use_container_width=True)
+
+                    st.markdown("---")
+
+                    # --- TÍNH NĂNG DASHBOARD MỚI 1: TIẾN ĐỘ % HOÀN THÀNH TỪNG DỰ ÁN ---
+                    st.write("📈 **Tiến độ % hoàn thành các Dự án:**" if st.session_state.lang == "English" else "📈 **Tiến độ % hoàn thành các Dự án:**")
+                    proj_progress = []
+                    for p in df_filtered['project'].unique():
+                        p_df = df_filtered[df_filtered['project'] == p]
+                        total_p_tasks = len(p_df)
+                        done_p_tasks = len(p_df[p_df['status'].isin(['Hoàn thành', 'Completed'])])
+                        pct = int((done_p_tasks / total_p_tasks) * 100) if total_p_tasks > 0 else 0
+                        proj_progress.append({"project": p, "progress": pct, "done": done_p_tasks, "total": total_p_tasks})
+
+                    for pp in proj_progress:
+                        st.text(f"📁 {pp['project']} ({pp['done']}/{pp['total']} tasks - {pp['progress']}%)")
+                        st.progress(pp['progress'] / 100)
+
+                    st.markdown("---")
+
+                    # --- TÍNH NĂNG DASHBOARD MỚI 2: BIỂU ĐỒ GANTT LỊCH TRÌNH CÔNG VIỆC ---
+                    if 'start_date' in df_filtered.columns and 'end_date' in df_filtered.columns:
+                        df_gantt = df_filtered.dropna(subset=['start_date', 'end_date'])
+                        if not df_gantt.empty:
+                            st.write("🗓️ **Biểu đồ Lịch trình công việc (Gantt Chart):**" if st.session_state.lang == "English" else "🗓️ **Biểu đồ Lịch trình công việc (Gantt Chart):**")
+                            fig_gantt = px.timeline(
+                                df_gantt, 
+                                x_start="start_date", 
+                                x_end="end_date", 
+                                y="task_name", 
+                                color="project",
+                                hover_name="assignee",
+                                title="Timeline of Tasks by Project & Staff"
+                            )
+                            fig_gantt.update_yaxes(autorange="reversed")
+                            st.plotly_chart(fig_gantt, use_container_width=True)
+
+                    st.markdown("---")
+                    st.write("📋 **Detailed Task List:**" if st.session_state.lang == "English" else "📋 **Danh sách chi tiết công việc:**")
+                    st.dataframe(df_filtered, use_container_width=True)
         except Exception as e:
             st.error(f"Error loading report: {e}" if st.session_state.lang == "English" else f"Lỗi tải báo cáo: {e}")
 
@@ -396,7 +453,7 @@ else:
         except Exception as e:
             st.error(f"System Error: {e}" if st.session_state.lang == "English" else f"Lỗi hệ thống: {e}")
 
-    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO & PHÂN BỔ NHÂN SỰ (MỌI USER ĐỀU XEM ĐƯỢC) ---
+    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO & PHÂN BỔ (CÓ BỘ LỌC NHÂN SỰ / DỰ ÁN) ---
     elif choice == t["menu_overlap"]:
         st.subheader("Workload Analysis & Project Overlap" if st.session_state.lang == "English" else "Phân tích Tải công việc & Sự chồng chéo Dự án của Nhân sự")
 
@@ -407,46 +464,65 @@ else:
             if df_tasks.empty:
                 st.info("No active tasks found." if st.session_state.lang == "English" else "Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu.")
             else:
-                df_user_projects = df_tasks.groupby('assignee')['project'].nunique().reset_index()
-                df_user_projects.columns = ['Staff' if st.session_state.lang == "English" else 'Nhân sự', 'Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
+                # Bộ lọc cho phần phân tích chồng chéo
+                col_of1, col_of2 = st.columns(2)
+                p_options_ol = [t["all"]] + sorted(df_tasks['project'].unique().tolist())
+                s_options_ol = [t["all"]] + sorted(df_tasks['assignee'].unique().tolist())
 
-                overloaded_users = df_user_projects[df_user_projects['Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách'] > 1]
+                with col_of1:
+                    sel_p_ol = st.selectbox("Lọc theo Dự án (Phân tích):" if st.session_state.lang == "English" else "Lọc theo Dự án (Phân tích):", p_options_ol, key="ol_p")
+                with col_of2:
+                    sel_s_ol = st.selectbox("Lọc theo Nhân sự (Phân tích):" if st.session_state.lang == "English" else "Lọc theo Nhân sự (Phân tích):", s_options_ol, key="ol_s")
 
-                col_stat1, col_stat2 = st.columns(2)
-                with col_stat1:
-                    st.write("📊 **Number of Projects per Staff:**" if st.session_state.lang == "English" else "📊 **Số lượng Dự án đang xử lý theo từng Nhân sự:**")
-                    fig_workload = px.bar(
-                        df_user_projects, 
-                        x='Staff' if st.session_state.lang == "English" else 'Nhân sự', 
-                        y='Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách', 
-                        color='Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách',
-                        color_continuous_scale='Reds'
+                df_tasks_filtered = df_tasks.copy()
+                if sel_p_ol != t["all"]:
+                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['project'] == sel_p_ol]
+                if sel_s_ol != t["all"]:
+                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['assignee'] == sel_s_ol]
+
+                if df_tasks_filtered.empty:
+                    st.warning("Không có dữ liệu phù hợp với bộ lọc.")
+                else:
+                    df_user_projects = df_tasks_filtered.groupby('assignee')['project'].nunique().reset_index()
+                    df_user_projects.columns = ['Staff' if st.session_state.lang == "English" else 'Nhân sự', 'Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
+
+                    overloaded_users = df_user_projects[df_user_projects['Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách'] > 1]
+
+                    col_stat1, col_stat2 = st.columns(2)
+                    with col_stat1:
+                        st.write("📊 **Number of Projects per Staff:**" if st.session_state.lang == "English" else "📊 **Số lượng Dự án đang xử lý theo từng Nhân sự:**")
+                        fig_workload = px.bar(
+                            df_user_projects, 
+                            x='Staff' if st.session_state.lang == "English" else 'Nhân sự', 
+                            y='Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách', 
+                            color='Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách',
+                            color_continuous_scale='Reds'
+                        )
+                        st.plotly_chart(fig_workload, use_container_width=True)
+
+                    with col_stat2:
+                        st.write("⚠️ **Project Overload Warning:**" if st.session_state.lang == "English" else "⚠️ **Cảnh báo Chồng chéo Dự án:**")
+                        if not overloaded_users.empty:
+                            for _, row in overloaded_users.iterrows():
+                                staff_name = row['Staff' if st.session_state.lang == "English" else 'Nhân sự']
+                                proj_count = row['Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
+                                st.error(f"🚨 **{staff_name}** is handling **{proj_count} projects** simultaneously!" if st.session_state.lang == "English" else f"🚨 **{staff_name}** đang tham gia **{proj_count} dự án** cùng lúc!")
+                                user_pjs = df_tasks[df_tasks['assignee'] == staff_name]['project'].unique()
+                                st.write(f"👉 Projects: *{', '.join(user_pjs)}*" if st.session_state.lang == "English" else f"👉 Các dự án: *{', '.join(user_pjs)}*")
+                        else:
+                            st.success("✅ No staff members are currently assigned to multiple projects simultaneously." if st.session_state.lang == "English" else "✅ Hiện không có nhân sự nào bị phân bổ hơn 1 dự án đồng thời.")
+
+                    st.markdown("---")
+                    st.write("🔍 **Task Allocation Matrix (Staff vs Project):**" if st.session_state.lang == "English" else "🔍 **Ma trận phân bổ Đầu việc theo Nhân sự & Dự án:**")
+                    pivot_df = pd.pivot_table(
+                        df_tasks_filtered, 
+                        index='assignee', 
+                        columns='project', 
+                        values='task_name', 
+                        aggfunc='count', 
+                        fill_value=0
                     )
-                    st.plotly_chart(fig_workload, use_container_width=True)
-
-                with col_stat2:
-                    st.write("⚠️ **Project Overload Warning:**" if st.session_state.lang == "English" else "⚠️ **Cảnh báo Chồng chéo Dự án:**")
-                    if not overloaded_users.empty:
-                        for _, row in overloaded_users.iterrows():
-                            staff_name = row['Staff' if st.session_state.lang == "English" else 'Nhân sự']
-                            proj_count = row['Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
-                            st.error(f"🚨 **{staff_name}** is handling **{proj_count} projects** simultaneously!" if st.session_state.lang == "English" else f"🚨 **{staff_name}** đang tham gia **{proj_count} dự án** cùng lúc!")
-                            user_pjs = df_tasks[df_tasks['assignee'] == staff_name]['project'].unique()
-                            st.write(f"👉 Projects: *{', '.join(user_pjs)}*" if st.session_state.lang == "English" else f"👉 Các dự án: *{', '.join(user_pjs)}*")
-                    else:
-                        st.success("✅ No staff members are currently assigned to multiple projects simultaneously." if st.session_state.lang == "English" else "✅ Hiện không có nhân sự nào bị phân bổ hơn 1 dự án đồng thời.")
-
-                st.markdown("---")
-                st.write("🔍 **Task Allocation Matrix (Staff vs Project):**" if st.session_state.lang == "English" else "🔍 **Ma trận phân bổ Đầu việc theo Nhân sự & Dự án:**")
-                pivot_df = pd.pivot_table(
-                    df_tasks, 
-                    index='assignee', 
-                    columns='project', 
-                    values='task_name', 
-                    aggfunc='count', 
-                    fill_value=0
-                )
-                st.dataframe(pivot_df, use_container_width=True)
+                    st.dataframe(pivot_df, use_container_width=True)
 
         except Exception as e:
             st.error(f"Analysis Error: {e}" if st.session_state.lang == "English" else f"Lỗi khi phân tích chồng chéo: {e}")
@@ -498,7 +574,7 @@ else:
         except Exception as e:
             st.error(f"Update Error: {e}" if st.session_state.lang == "English" else f"Lỗi cập nhật dữ liệu: {e}")
 
-    # --- CHỨC NĂNG MỚI: ĐỔI MẬT KHẨU CÁ NHÂN ---
+    # --- CHỨC NĂNG: ĐỔI MẬT KHẨU CÁ NHÂN ---
     elif choice == t["menu_change_pw"]:
         st.subheader("Change Password" if st.session_state.lang == "English" else "Đổi Mật khẩu Tài khoản")
         
@@ -516,14 +592,12 @@ else:
                     st.error("New password and confirmation do not match!" if st.session_state.lang == "English" else "Mật khẩu mới và xác nhận mật khẩu không khớp!")
                 else:
                     try:
-                        # Kiểm tra mật khẩu cũ trong database
                         res_user = execute_query(conn.table("users").select("*").eq("username", st.session_state.username), ttl=0)
                         if res_user.data:
                             current_db_pw = str(res_user.data[0]["password"])
                             if current_db_pw != old_pw:
                                 st.error("Current password is incorrect!" if st.session_state.lang == "English" else "Mật khẩu hiện tại không chính xác!")
                             else:
-                                # Tiến hành cập nhật mật khẩu mới
                                 conn.table("users").update({"password": new_pw}).eq("username", st.session_state.username).execute()
                                 st.success("Password changed successfully!" if st.session_state.lang == "English" else "Đổi mật khẩu thành công!")
                         else:
