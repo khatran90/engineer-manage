@@ -443,4 +443,337 @@ else:
                 df_all_tasks = get_scoped_tasks_df()
 
                 if df_all_tasks.empty:
-                    st.info("No tasks found in the system." if st.session_state.lang ==
+                    st.info("No tasks found in the system." if st.session_state.lang == "English" else "Chưa có nhiệm vụ nào thuộc quyền quản lý.")
+                else:
+                    st.write("📋 **Danh sách tất cả nhiệm vụ (Có thể chỉnh sửa hoặc xóa):**")
+                    
+                    search_task_kw = st.text_input("🔍 Tìm kiếm nhiệm vụ (theo tên task, dự án hoặc nhân sự):", placeholder="Nhập từ khóa...")
+                    df_tasks_display = df_all_tasks.copy()
+                    if search_task_kw.strip():
+                        mask = df_tasks_display.apply(lambda row: row.astype(str).str.contains(search_task_kw.strip(), case=False).any(), axis=1)
+                        df_tasks_display = df_tasks_display[mask]
+
+                    if df_tasks_display.empty:
+                        st.warning("Không tìm thấy nhiệm vụ phù hợp.")
+                    else:
+                        task_select_label = df_tasks_display.apply(lambda r: f"[ID: {r['id']}] [{r['project']}] {r['task_name']} ({r['assignee']})", axis=1).tolist()
+                        chosen_task_str = st.selectbox("Chọn đầu việc để chỉnh sửa/xóa:", task_select_label)
+                        
+                        chosen_task_id = int(chosen_task_str.split("]")[0].replace("[ID: ", ""))
+                        task_row = df_all_tasks[df_all_tasks['id'] == chosen_task_id].iloc[0]
+
+                        with st.form("edit_single_task_form"):
+                            ed_task_name = st.text_input("Tên đầu việc", value=task_row['task_name'])
+                            ed_status = st.selectbox("Trạng thái", ["Chưa bắt đầu", "Đang làm", "Hoàn thành"], index=["Chưa bắt đầu", "Đang làm", "Hoàn thành"].index(task_row['status']) if task_row['status'] in ["Chưa bắt đầu", "Đang làm", "Hoàn thành"] else 0)
+                            ed_hours = st.number_input("Số giờ đã làm", value=float(task_row['hours_spent']), min_value=0.0, step=0.5)
+                            
+                            t_start_default = datetime.strptime(task_row['start_date'], "%Y-%m-%d").date() if task_row.get('start_date') else datetime.now().date()
+                            t_end_default = datetime.strptime(task_row['end_date'], "%Y-%m-%d").date() if task_row.get('end_date') else datetime.now().date()
+
+                            col_ts1, col_ts2 = st.columns(2)
+                            with col_ts1:
+                                ed_start_date = st.date_input("Ngày bắt đầu công việc", value=t_start_default)
+                            with col_ts2:
+                                ed_end_date = st.date_input("Ngày kết thúc dự kiến", value=t_end_default)
+
+                            if st.form_submit_button("Cập nhật nhiệm vụ này"):
+                                conn.table("tasks").update({
+                                    "task_name": ed_task_name.strip(),
+                                    "status": ed_status,
+                                    "hours_spent": ed_hours,
+                                    "start_date": str(ed_start_date),
+                                    "end_date": str(ed_end_date),
+                                    "date_updated": datetime.now().strftime("%Y-%m-%d")
+                                }).eq("id", chosen_task_id).execute()
+                                st.success("Đã cập nhật nhiệm vụ thành công!")
+                                st.rerun()
+
+                        st.markdown("---")
+                        st.error("⚠️ **Xác nhận xóa nhiệm vụ:**")
+                        confirm_delete_task = st.checkbox("Tôi chắc chắn muốn xóa nhiệm vụ này.")
+                        if confirm_delete_task:
+                            if st.button("🗑️ Xóa vĩnh viễn nhiệm vụ này"):
+                                conn.table("tasks").delete().eq("id", chosen_task_id).execute()
+                                st.success(f"Đã xóa nhiệm vụ ID: {chosen_task_id} thành công!")
+                                st.rerun()
+
+        except Exception as e:
+            st.error(f"Lỗi quản lý dự án: {e}")
+
+    # --- CHỨC NĂNG: GIAO VIỆC MỚI ---
+    elif choice == t["menu_add_task"]:
+        st.subheader("Giao nhiệm vụ cho Nhân viên")
+        try:
+            res_us = execute_query(conn.table("users").select("name").neq("role", "General Manager"), ttl=0)
+            res_pj = execute_query(conn.table("projects").select("project_name").eq("status", "Đang triển khai"), ttl=0)
+
+            staff_list = [u["name"] for u in res_us.data] if res_us.data else []
+            project_list = [p["project_name"] for p in res_pj.data] if res_pj.data else []
+
+            if not staff_list:
+                st.warning("Chưa có nhân viên nào trên hệ thống. Vui lòng thêm nhân viên trước.")
+            elif not project_list:
+                st.warning("Chưa có dự án nào đang mở. Vui lòng vào mục 'Quản lý & Cập nhật Dự án' để thêm dự án trước.")
+            else:
+                with st.form("add_task_form"):
+                    project_select = st.selectbox("Chọn Dự án:", project_list)
+                    task_title = st.text_input("Tên đầu việc cần xử lý", placeholder="e.g. Foundation Design...")
+                    assignee_select = st.selectbox("Giao cho nhân viên:", staff_list)
+
+                    col_t1, col_t2 = st.columns(2)
+                    with col_t1:
+                        task_start = st.date_input("Ngày bắt đầu công việc", datetime.now())
+                    with col_t2:
+                        task_end = st.date_input("Ngày dự kiến hoàn thành", datetime.now())
+
+                    if st.form_submit_button("Xác nhận giao việc"):
+                        if not task_title.strip():
+                            st.error("Vui lòng nhập tên đầu việc!")
+                        elif task_start > task_end:
+                            st.error("Ngày bắt đầu công việc không được lớn hơn ngày kết thúc!")
+                        else:
+                            dup_check = execute_query(
+                                conn.table("tasks")
+                                .select("*")
+                                .eq("project", project_select)
+                                .eq("task_name", task_title.strip())
+                                .eq("assignee", assignee_select),
+                                ttl=0
+                            )
+                            if dup_check.data:
+                                st.error(f"⚠️ **Cảnh báo trùng lặp:** Nhân viên **{assignee_select}** đã được giao đầu việc **'{task_title.strip()}'** trong dự án **[{project_select}]** rồi!")
+                            else:
+                                conn.table("tasks").insert({
+                                    "project": project_select,
+                                    "task_name": task_title.strip(),
+                                    "assignee": assignee_select,
+                                    "status": "Chưa bắt đầu",
+                                    "hours_spent": 0.0,
+                                    "date_updated": datetime.now().strftime("%Y-%m-%d"),
+                                    "start_date": str(task_start),
+                                    "end_date": str(task_end),
+                                    "created_by": st.session_state.name
+                                }).execute()
+                                st.success(f"Đã giao việc '{task_title}' cho {assignee_select} thuộc dự án [{project_select}]!")
+                                st.rerun()
+        except Exception as e:
+            st.error(f"Lỗi hệ thống: {e}")
+
+    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO ---
+    elif choice == t["menu_overlap"]:
+        st.subheader("Phân tích Tải công việc & Sự chồng chéo Dự án của Nhân sự")
+        try:
+            df_tasks = get_scoped_tasks_df()
+            if not df_tasks.empty:
+                df_tasks = df_tasks[df_tasks['status'] != "Hoàn thành"]
+
+            if df_tasks.empty:
+                st.info("Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu thuộc quyền quản lý của bạn.")
+            else:
+                col_of1, col_of2 = st.columns(2)
+                p_options_ol = [t["all"]] + sorted(df_tasks['project'].unique().tolist())
+                s_options_ol = [t["all"]] + sorted(df_tasks['assignee'].unique().tolist())
+
+                with col_of1:
+                    sel_p_ol = st.selectbox(t["filter_project"], p_options_ol, key="ol_p")
+                with col_of2:
+                    sel_s_ol = st.selectbox(t["filter_staff"], s_options_ol, key="ol_s")
+
+                df_tasks_filtered = df_tasks.copy()
+                if sel_p_ol != t["all"]:
+                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['project'] == sel_p_ol]
+                if sel_s_ol != t["all"]:
+                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['assignee'] == sel_s_ol]
+
+                if df_tasks_filtered.empty:
+                    st.warning("Không có dữ liệu phù hợp với bộ lọc.")
+                else:
+                    df_user_projects = df_tasks_filtered.groupby('assignee')['project'].nunique().reset_index()
+                    df_user_projects.columns = ['Nhân sự', 'Số lượng Dự án đang phụ trách']
+
+                    overloaded_users = df_user_projects[df_user_projects['Số lượng Dự án đang phụ trách'] > 1]
+
+                    col_stat1, col_stat2 = st.columns(2)
+                    with col_stat1:
+                        st.write("📊 **Số lượng Dự án đang xử lý theo từng Nhân sự:**")
+                        fig_workload = px.bar(
+                            df_user_projects, 
+                            x='Nhân sự', 
+                            y='Số lượng Dự án đang phụ trách', 
+                            color='Số lượng Dự án đang phụ trách',
+                            color_continuous_scale='Reds'
+                        )
+                        st.plotly_chart(fig_workload, use_container_width=True)
+
+                    with col_stat2:
+                        st.write("⚠️ **Cảnh báo Chồng chéo Dự án:**")
+                        if not overloaded_users.empty:
+                            for _, row in overloaded_users.iterrows():
+                                staff_name = row['Nhân sự']
+                                proj_count = row['Số lượng Dự án đang phụ trách']
+                                st.error(f"🚨 **{staff_name}** đang tham gia **{proj_count} dự án** cùng lúc!")
+                                user_pjs = df_tasks[df_tasks['assignee'] == staff_name]['project'].unique()
+                                st.write(f"👉 Các dự án: *{', '.join(user_pjs)}*")
+                        else:
+                            st.success("✅ Hiện không có nhân sự nào bị phân bổ hơn 1 dự án đồng thời.")
+
+                    st.markdown("---")
+                    st.write("🔍 **Ma trận phân bổ Đầu việc theo Nhân sự & Dự án:**")
+                    pivot_df = pd.pivot_table(
+                        df_tasks_filtered, 
+                        index='assignee', 
+                        columns='project', 
+                        values='task_name', 
+                        aggfunc='count', 
+                        fill_value=0
+                    )
+                    st.dataframe(pivot_df, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Lỗi khi phân tích chồng chéo: {e}")
+
+    # --- CHỨC NĂNG: LOG THỜI GIAN CÔNG VIỆC ---
+    elif choice == t["menu_time_log"]:
+        st.subheader("Cập nhật báo cáo tiến độ công việc hàng ngày")
+        try:
+            df_display = get_scoped_tasks_df()
+
+            if df_display.empty:
+                st.warning("Bạn chưa được giao bất kỳ công việc nào hoặc danh sách trống.")
+            else:
+                task_options = df_display.apply(lambda r: f"[{r['project']}] {r['task_name']}", axis=1).tolist()
+                selected_task = st.selectbox("Chọn đầu việc vừa thực hiện:", task_options)
+
+                task_index = task_options.index(selected_task)
+                task_db_id = int(df_display.iloc[task_index]['id'])
+                current_logged_hours = float(df_display.iloc[task_index]['hours_spent'])
+
+                col_left, col_right = st.columns(2)
+                with col_left:
+                    status_options_list = ["Chưa bắt đầu", "Đang làm", "Hoàn thành"]
+                    current_st = df_display.iloc[task_index]['status']
+                    idx = status_options_list.index(current_st) if current_st in status_options_list else 0
+                    status_update = st.selectbox("Cập nhật trạng thái thực tế:", status_options_list, index=idx)
+                with col_right:
+                    added_hours_today = st.number_input("Số giờ cống hiến thêm hôm nay:", min_value=0.0, step=0.5, format="%.1f")
+
+                if st.button("Lưu Logs & Cộng dồn thời gian"):
+                    new_cumulative_hours = current_logged_hours + added_hours_today
+                    conn.table("tasks").update({
+                        "status": status_update,
+                        "hours_spent": new_cumulative_hours,
+                        "date_updated": datetime.now().strftime("%Y-%m-%d")
+                    }).eq("id", task_db_id).execute()
+                    st.success(f"Đã lưu thành công! Tổng thời gian: {new_cumulative_hours} giờ.")
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Lỗi cập nhật dữ liệu: {e}")
+
+    # --- CHỨC NĂNG: ĐỔI MẬT KHẨU CÁ NHÂN ---
+    elif choice == t["menu_change_pw"]:
+        st.subheader("Đổi Mật khẩu Tài khoản")
+        with st.form("change_password_form"):
+            old_pw = st.text_input("Mật khẩu hiện tại", type="password")
+            new_pw = st.text_input("Mật khẩu mới", type="password")
+            confirm_pw = st.text_input("Xác nhận mật khẩu mới", type="password")
+            
+            submit_pw = st.form_submit_button("Xác nhận đổi mật khẩu")
+            
+            if submit_pw:
+                if not old_pw or not new_pw or not confirm_pw:
+                    st.error("Vui lòng điền đầy đủ thông tin!")
+                elif new_pw != confirm_pw:
+                    st.error("Mật khẩu mới và xác nhận mật khẩu không khớp!")
+                else:
+                    try:
+                        res_user = execute_query(conn.table("users").select("*").eq("username", st.session_state.username), ttl=0)
+                        if res_user.data:
+                            current_db_pw = str(res_user.data[0]["password"])
+                            if current_db_pw != old_pw:
+                                st.error("Mật khẩu hiện tại không chính xác!")
+                            else:
+                                conn.table("users").update({"password": new_pw}).eq("username", st.session_state.username).execute()
+                                st.success("Đổi mật khẩu thành công!")
+                        else:
+                            st.error("Không tìm thấy thông tin tài khoản.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ ---
+    elif choice == t["menu_user_mgmt"]:
+        st.subheader("Quản lý nhân sự")
+        try:
+            res_users = execute_query(conn.table("users").select("username, name, role"), ttl=0)
+            df_users = pd.DataFrame(res_users.data) if res_users.data else pd.DataFrame()
+
+            if not df_users.empty:
+                search_user_box = st.text_input("🔍 Tìm kiếm tài khoản nhân sự:", placeholder="Nhập tên hoặc username...")
+                df_users_display = df_users.copy()
+                if search_user_box.strip():
+                    mask_u = df_users_display.apply(lambda row: row.astype(str).str.contains(search_user_box.strip(), case=False).any(), axis=1)
+                    df_users_display = df_users_display[mask_u]
+                st.dataframe(df_users_display, use_container_width=True)
+
+            if not df_users.empty and is_super_admin:
+                st.markdown("---")
+                st.write("✏️ **Cập nhật / Sửa vai trò nhân sự (Chỉ General Manager):**")
+                with st.form("update_user_role_form"):
+                    selected_target_user = st.selectbox("Chọn tài khoản cần đổi vai trò:", df_users["username"].tolist())
+                    
+                    current_role_val = df_users[df_users["username"] == selected_target_user]["role"].values[0]
+                    role_options_list = ["Nhân viên", "Associate/Senior", "General Manager"]
+                    curr_idx = role_options_list.index(current_role_val) if current_role_val in role_options_list else 0
+                    
+                    new_assigned_role = st.selectbox("Chọn vai trò mới:", role_options_list, index=curr_idx)
+
+                    if st.form_submit_button("Lưu thay đổi vai trò"):
+                        conn.table("users").update({"role": new_assigned_role}).eq("username", selected_target_user).execute()
+                        st.success(f"Đã cập nhật vai trò của tài khoản '{selected_target_user}' thành '{new_assigned_role}' thành công!")
+                        st.rerun()
+
+            st.markdown("---")
+            st.write("➕ **Thêm tài khoản nhân sự mới:**")
+            with st.form("add_user_form", clear_on_submit=True):
+                new_username = st.text_input("Tài khoản (viết liền không dấu)")
+                new_password = st.text_input("Mật khẩu", type="password")
+                new_name = st.text_input("Họ và tên")
+                new_role = st.selectbox("Vai trò", ["Nhân viên", "Associate/Senior"])
+
+                if st.form_submit_button("Tạo tài khoản"):
+                    clean_new_username = new_username.strip().lower()
+                    if not clean_new_username or not new_password or not new_name.strip():
+                        st.error("Vui lòng điền đầy đủ thông tin!")
+                    elif not df_users.empty and clean_new_username in df_users["username"].str.lower().tolist():
+                        st.error("Tài khoản này đã tồn tại!")
+                    else:
+                        # Kiểm tra trùng lặp tên đầy đủ nhân viên
+                        check_name = execute_query(conn.table("users").select("*").ilike("name", new_name.strip()), ttl=0)
+                        if check_name.data:
+                            st.warning(f"⚠️ Lưu ý: Nhân sự có tên '{new_name.strip()}' đã tồn tại trên hệ thống!")
+                        
+                        conn.table("users").insert({
+                            "username": clean_new_username,
+                            "password": new_password,
+                            "name": new_name.strip(),
+                            "role": new_role
+                        }).execute()
+                        st.success(f"Đã tạo tài khoản '{clean_new_username}'!")
+                        st.rerun()
+
+            if is_super_admin:
+                st.markdown("---")
+                st.error("⚠️ **Xóa tài khoản (Chỉ General Manager):**")
+                if not df_users.empty:
+                    del_options = [u for u in df_users["username"].tolist() if u != st.session_state.username]
+                    if del_options:
+                        del_user = st.selectbox("Chọn tài khoản cần xóa", del_options)
+                        confirm_del_user = st.checkbox("Tôi xác nhận muốn xóa tài khoản này.")
+                        if confirm_del_user:
+                            if st.button("Xóa tài khoản"):
+                                conn.table("users").delete().eq("username", del_user).execute()
+                                st.success(f"Đã xóa tài khoản '{del_user}'!")
+                                st.rerun()
+                    else:
+                        st.info("Không có tài khoản nào khác để xóa.")
+        except Exception as e:
+            st.error(f"Lỗi quản lý nhân sự: {e}")
