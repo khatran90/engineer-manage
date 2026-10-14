@@ -198,7 +198,7 @@ else:
     choice = st.sidebar.selectbox("Function / Chức năng", menu)
     st.title(t["main_title"])
 
-    # --- HÀM BẢO MẬT: LỌC DỮ LIỆU THEO PHÂN QUYỀN VAI TRÒ ---
+    # --- HÀM BẢO MẬT: LỌC DỮ LIỆU CHUẨN XÁC CHO ASSOCIATE/SENIOR ---
     def get_scoped_tasks_df():
         res = execute_query(conn.table("tasks").select("*"), ttl=0)
         df_all = pd.DataFrame(res.data) if res.data else pd.DataFrame()
@@ -207,16 +207,14 @@ else:
             return pd.DataFrame()
             
         if is_super_admin:
-            # General Manager/Admin thấy tất cả
             return df_all
         elif is_sub_admin:
-            # Associate/Senior chỉ thấy các dự án/nhiệm vụ do chính họ gán/tạo
+            # Associate/Senior chỉ thấy task do chính họ tạo (created_by) hoặc được giao
             if 'created_by' in df_all.columns:
                 return df_all[(df_all['created_by'] == st.session_state.name) | (df_all['assignee'] == st.session_state.name)]
             else:
                 return df_all[df_all['assignee'] == st.session_state.name]
         else:
-            # Nhân viên chỉ thấy nhiệm vụ giao cho họ
             return df_all[df_all['assignee'] == st.session_state.name]
 
     # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN ---
@@ -312,14 +310,13 @@ else:
         except Exception as e:
             st.error(f"Error loading report: {e}" if st.session_state.lang == "English" else f"Lỗi tải báo cáo: {e}")
 
-    # --- CHỨC NĂNG: QUẢN LÝ DỰ ÁN & NHIỆM VỤ ---
+    # --- CHỨC NĂNG: QUẢN LÝ DỰ ÁN & NHIỆM VỤ (CÓ CẢNH BÁO TRƯỚC KHI XÓA) ---
     elif choice == t["menu_project_mgmt"]:
         st.subheader("Project & Task Management" if st.session_state.lang == "English" else "Quản lý Danh mục Dự án & Nhiệm vụ")
         try:
             res_pj = execute_query(conn.table("projects").select("*").order("id", desc=True), ttl=0)
             df_pj = pd.DataFrame(res_pj.data) if res_pj.data else pd.DataFrame()
 
-            # Lọc dự án hiển thị theo quyền
             df_scoped_tasks = get_scoped_tasks_df()
             if not is_super_admin and not df_scoped_tasks.empty:
                 allowed_projects = df_scoped_tasks['project'].unique().tolist()
@@ -354,14 +351,19 @@ else:
                         elif start_d > end_d:
                             st.error("Start date cannot be later than end date!" if st.session_state.lang == "English" else "Ngày bắt đầu không được lớn hơn ngày kết thúc dự kiến!")
                         else:
-                            conn.table("projects").insert({
-                                "project_name": p_name.strip(),
-                                "start_date": str(start_d),
-                                "end_date": str(end_d),
-                                "status": "Đang triển khai"
-                            }).execute()
-                            st.success(f"Successfully created project '{p_name}'!" if st.session_state.lang == "English" else f"Đã tạo thành công dự án '{p_name}'!")
-                            st.rerun()
+                            # Kiểm tra trùng lặp tên dự án
+                            check_dup = execute_query(conn.table("projects").select("*").eq("project_name", p_name.strip()), ttl=0)
+                            if check_dup.data:
+                                st.error(f"⚠️ Cảnh báo: Dự án '{p_name.strip()}' đã tồn tại trên hệ thống!")
+                            else:
+                                conn.table("projects").insert({
+                                    "project_name": p_name.strip(),
+                                    "start_date": str(start_d),
+                                    "end_date": str(end_d),
+                                    "status": "Đang triển khai"
+                                }).execute()
+                                st.success(f"Successfully created project '{p_name}'!" if st.session_state.lang == "English" else f"Đã tạo thành công dự án '{p_name}'!")
+                                st.rerun()
 
             with tab_edit:
                 if df_pj.empty:
@@ -403,12 +405,14 @@ else:
                             st.rerun()
 
                     st.markdown("---")
-                    st.error("⚠️ **Danger Zone (Delete Project):**" if st.session_state.lang == "English" else "⚠️ **Khu vực nguy hiểm (Xóa dự án):**")
-                    if st.button("🗑️ Permanently Delete This Project" if st.session_state.lang == "English" else "🗑️ Xóa vĩnh viễn dự án này"):
-                        conn.table("tasks").delete().eq("project", selected_pj_name).execute()
-                        conn.table("projects").delete().eq("id", pj_id).execute()
-                        st.success("Project and related tasks deleted successfully!" if st.session_state.lang == "English" else f"Đã xóa dự án '{selected_pj_name}' và toàn bộ các nhiệm vụ liên quan!")
-                        st.rerun()
+                    st.error("⚠️ **Khu vực nguy hiểm (Xóa dự án):**")
+                    confirm_delete_proj = st.checkbox("Tôi xác nhận muốn xóa vĩnh viễn dự án này và toàn bộ các nhiệm vụ bên trong.")
+                    if confirm_delete_proj:
+                        if st.button("🗑️ Xóa vĩnh viễn dự án này"):
+                            conn.table("tasks").delete().eq("project", selected_pj_name).execute()
+                            conn.table("projects").delete().eq("id", pj_id).execute()
+                            st.success(f"Đã xóa vĩnh viễn dự án '{selected_pj_name}' và toàn bộ các nhiệm vụ liên quan!")
+                            st.rerun()
 
             with tab_tasks:
                 df_all_tasks = get_scoped_tasks_df()
@@ -416,7 +420,7 @@ else:
                 if df_all_tasks.empty:
                     st.info("No tasks found in the system." if st.session_state.lang == "English" else "Chưa có nhiệm vụ nào thuộc quyền quản lý.")
                 else:
-                    st.write("📋 **All Tasks (Editable & Deletable):**" if st.session_state.lang == "English" else "📋 **Danh sách tất cả nhiệm vụ (Có thể chỉnh sửa hoặc xóa):**")
+                    st.write("📋 **Danh sách tất cả nhiệm vụ (Có thể chỉnh sửa hoặc xóa):**")
                     
                     search_task_kw = st.text_input("🔍 Tìm kiếm nhiệm vụ (theo tên task, dự án hoặc nhân sự):", placeholder="Nhập từ khóa...")
                     df_tasks_display = df_all_tasks.copy()
@@ -434,20 +438,20 @@ else:
                         task_row = df_all_tasks[df_all_tasks['id'] == chosen_task_id].iloc[0]
 
                         with st.form("edit_single_task_form"):
-                            ed_task_name = st.text_input("Task Name" if st.session_state.lang == "English" else "Tên đầu việc", value=task_row['task_name'])
-                            ed_status = st.selectbox("Status" if st.session_state.lang == "English" else "Trạng thái", ["Chưa bắt đầu", "Đang làm", "Hoàn thành"], index=["Chưa bắt đầu", "Đang làm", "Hoàn thành"].index(task_row['status']) if task_row['status'] in ["Chưa bắt đầu", "Đang làm", "Hoàn thành"] else 0)
-                            ed_hours = st.number_input("Hours Spent" if st.session_state.lang == "English" else "Số giờ đã làm", value=float(task_row['hours_spent']), min_value=0.0, step=0.5)
+                            ed_task_name = st.text_input("Tên đầu việc", value=task_row['task_name'])
+                            ed_status = st.selectbox("Trạng thái", ["Chưa bắt đầu", "Đang làm", "Hoàn thành"], index=["Chưa bắt đầu", "Đang làm", "Hoàn thành"].index(task_row['status']) if task_row['status'] in ["Chưa bắt đầu", "Đang làm", "Hoàn thành"] else 0)
+                            ed_hours = st.number_input("Số giờ đã làm", value=float(task_row['hours_spent']), min_value=0.0, step=0.5)
                             
                             t_start_default = datetime.strptime(task_row['start_date'], "%Y-%m-%d").date() if task_row.get('start_date') else datetime.now().date()
                             t_end_default = datetime.strptime(task_row['end_date'], "%Y-%m-%d").date() if task_row.get('end_date') else datetime.now().date()
 
                             col_ts1, col_ts2 = st.columns(2)
                             with col_ts1:
-                                ed_start_date = st.date_input("Start Date" if st.session_state.lang == "English" else "Ngày bắt đầu công việc", value=t_start_default)
+                                ed_start_date = st.date_input("Ngày bắt đầu công việc", value=t_start_default)
                             with col_ts2:
-                                ed_end_date = st.date_input("End Date" if st.session_state.lang == "English" else "Ngày kết thúc dự kiến", value=t_end_default)
+                                ed_end_date = st.date_input("Ngày kết thúc dự kiến", value=t_end_default)
 
-                            if st.form_submit_button("Update Task" if st.session_state.lang == "English" else "Cập nhật nhiệm vụ này"):
+                            if st.form_submit_button("Cập nhật nhiệm vụ này"):
                                 conn.table("tasks").update({
                                     "task_name": ed_task_name.strip(),
                                     "status": ed_status,
@@ -456,20 +460,24 @@ else:
                                     "end_date": str(ed_end_date),
                                     "date_updated": datetime.now().strftime("%Y-%m-%d")
                                 }).eq("id", chosen_task_id).execute()
-                                st.success("Task updated successfully!" if st.session_state.lang == "English" else "Đã cập nhật nhiệm vụ thành công!")
+                                st.success("Đã cập nhật nhiệm vụ thành công!")
                                 st.rerun()
 
-                        if st.button("🗑️ Delete This Task" if st.session_state.lang == "English" else "🗑️ Xóa nhiệm vụ này"):
-                            conn.table("tasks").delete().eq("id", chosen_task_id).execute()
-                            st.success(f"Task ID {chosen_task_id} deleted successfully!" if st.session_state.lang == "English" else f"Đã xóa nhiệm vụ ID: {chosen_task_id} thành công!")
-                            st.rerun()
+                        st.markdown("---")
+                        st.error("⚠️ **Xác nhận xóa nhiệm vụ:**")
+                        confirm_delete_task = st.checkbox("Tôi chắc chắn muốn xóa nhiệm vụ này.")
+                        if confirm_delete_task:
+                            if st.button("🗑️ Xóa vĩnh viễn nhiệm vụ này"):
+                                conn.table("tasks").delete().eq("id", chosen_task_id).execute()
+                                st.success(f"Đã xóa nhiệm vụ ID: {chosen_task_id} thành công!")
+                                st.rerun()
 
         except Exception as e:
-            st.error(f"Management Error: {e}" if st.session_state.lang == "English" else f"Lỗi quản lý dự án: {e}")
+            st.error(f"Lỗi quản lý dự án: {e}")
 
-    # --- CHỨC NĂNG: GIAO VIỆC MỚI (LƯU VẾT CREATED_BY) ---
+    # --- CHỨC NĂNG: GIAO VIỆC MỚI (CÓ CẢNH BÁO TRÙNG LẶP) ---
     elif choice == t["menu_add_task"]:
-        st.subheader("Assign Task to Staff" if st.session_state.lang == "English" else "Giao nhiệm vụ cho Nhân viên")
+        st.subheader("Giao nhiệm vụ cho Nhân viên")
         try:
             res_us = execute_query(conn.table("users").select("name").neq("role", "General Manager"), ttl=0)
             res_pj = execute_query(conn.table("projects").select("project_name").eq("status", "Đang triển khai"), ttl=0)
@@ -478,53 +486,76 @@ else:
             project_list = [p["project_name"] for p in res_pj.data] if res_pj.data else []
 
             if not staff_list:
-                st.warning("No staff available. Please add staff first." if st.session_state.lang == "English" else "Chưa có nhân viên nào trên hệ thống. Vui lòng thêm nhân viên trước.")
+                st.warning("Chưa có nhân viên nào trên hệ thống. Vui lòng thêm nhân viên trước.")
             elif not project_list:
-                st.warning("No active projects available." if st.session_state.lang == "English" else "Chưa có dự án nào đang mở. Vui lòng vào mục 'Quản lý & Cập nhật Dự án' để thêm dự án trước.")
+                st.warning("Chưa có dự án nào đang mở. Vui lòng vào mục 'Quản lý & Cập nhật Dự án' để thêm dự án trước.")
             else:
                 with st.form("add_task_form"):
-                    project_select = st.selectbox("Select Project:" if st.session_state.lang == "English" else "Chọn Dự án:", project_list)
-                    task_title = st.text_input("Task Name" if st.session_state.lang == "English" else "Tên đầu việc cần xử lý", placeholder="e.g. Foundation Design...")
-                    assignee_select = st.selectbox("Assign to Staff:" if st.session_state.lang == "English" else "Giao cho nhân viên:", staff_list)
+                    project_select = st.selectbox("Chọn Dự án:", project_list)
+                    task_title = st.text_input("Tên đầu việc cần xử lý", placeholder="e.g. Foundation Design...")
+                    assignee_select = st.selectbox("Giao cho nhân viên:", staff_list)
 
                     col_t1, col_t2 = st.columns(2)
                     with col_t1:
-                        task_start = st.date_input("Start Date" if st.session_state.lang == "English" else "Ngày bắt đầu công việc", datetime.now())
+                        task_start = st.date_input("Ngày bắt đầu công việc", datetime.now())
                     with col_t2:
-                        task_end = st.date_input("Target End Date" if st.session_state.lang == "English" else "Ngày dự kiến hoàn thành", datetime.now())
+                        task_end = st.date_input("Ngày dự kiến hoàn thành", datetime.now())
 
-                    if st.form_submit_button("Confirm Assignment" if st.session_state.lang == "English" else "Xác nhận giao việc"):
+                    if st.form_submit_button("Xác nhận giao việc"):
                         if not task_title.strip():
-                            st.error("Task name cannot be empty!" if st.session_state.lang == "English" else "Vui lòng nhập tên đầu việc!")
+                            st.error("Vui lòng nhập tên đầu việc!")
                         elif task_start > task_end:
-                            st.error("Start date cannot be later than end date!" if st.session_state.lang == "English" else "Ngày bắt đầu công việc không được lớn hơn ngày kết thúc!")
+                            st.error("Ngày bắt đầu công việc không được lớn hơn ngày kết thúc!")
                         else:
-                            conn.table("tasks").insert({
-                                "project": project_select,
-                                "task_name": task_title.strip(),
-                                "assignee": assignee_select,
-                                "status": "Chưa bắt đầu",
-                                "hours_spent": 0.0,
-                                "date_updated": datetime.now().strftime("%Y-%m-%d"),
-                                "start_date": str(task_start),
-                                "end_date": str(task_end),
-                                "created_by": st.session_state.name  # Lưu vết người tạo task
-                            }).execute()
-                            st.success(f"Assigned '{task_title}' to {assignee_select} under project [{project_select}]!" if st.session_state.lang == "English" else f"Đã giao việc '{task_title}' cho {assignee_select} thuộc dự án [{project_select}]!")
-                            st.rerun()
+                            # --- KIỂM TRA TRÙNG LẶP NHIỆM VỤ ---
+                            dup_check = execute_query(
+                                conn.table("tasks")
+                                .select("*")
+                                .eq("project", project_select)
+                                .eq("task_name", task_title.strip())
+                                .eq("assignee", assignee_select),
+                                ttl=0
+                            )
+                            if dup_check.data:
+                                st.error(f"⚠️ **Cảnh báo trùng lặp:** Nhân viên **{assignee_select}** đã được giao đầu việc **'{task_title.strip()}'** trong dự án **[{project_select}]** rồi!")
+                            else:
+                                # Kiểm tra xem nhân viên này đã có task nào đang làm cùng thời gian chưa để cảnh báo workload
+                                workload_check = execute_query(
+                                    conn.table("tasks")
+                                    .select("*")
+                                    .eq("assignee", assignee_select)
+                                    .neq("status", "Hoàn thành"),
+                                    ttl=0
+                                )
+                                if workload_check.data and len(workload_check.data) >= 2:
+                                    st.warning(f"⚠️ **Lưu ý:** Nhân viên **{assignee_select}** hiện đang làm dở dang {len(workload_check.data)} việc khác. Hãy cân nhắc tải công việc!")
+
+                                conn.table("tasks").insert({
+                                    "project": project_select,
+                                    "task_name": task_title.strip(),
+                                    "assignee": assignee_select,
+                                    "status": "Chưa bắt đầu",
+                                    "hours_spent": 0.0,
+                                    "date_updated": datetime.now().strftime("%Y-%m-%d"),
+                                    "start_date": str(task_start),
+                                    "end_date": str(task_end),
+                                    "created_by": st.session_state.name
+                                }).execute()
+                                st.success(f"Đã giao việc '{task_title}' cho {assignee_select} thuộc dự án [{project_select}]!")
+                                st.rerun()
         except Exception as e:
-            st.error(f"System Error: {e}" if st.session_state.lang == "English" else f"Lỗi hệ thống: {e}")
+            st.error(f"Lỗi hệ thống: {e}")
 
     # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO ---
     elif choice == t["menu_overlap"]:
-        st.subheader("Workload Analysis & Project Overlap" if st.session_state.lang == "English" else "Phân tích Tải công việc & Sự chồng chéo Dự án của Nhân sự")
+        st.subheader("Phân tích Tải công việc & Sự chồng chéo Dự án của Nhân sự")
         try:
             df_tasks = get_scoped_tasks_df()
             if not df_tasks.empty:
                 df_tasks = df_tasks[df_tasks['status'] != "Hoàn thành"]
 
             if df_tasks.empty:
-                st.info("No active tasks found." if st.session_state.lang == "English" else "Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu thuộc quyền quản lý của bạn.")
+                st.info("Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu thuộc quyền quản lý của bạn.")
             else:
                 col_of1, col_of2 = st.columns(2)
                 p_options_ol = [t["all"]] + sorted(df_tasks['project'].unique().tolist())
@@ -542,39 +573,39 @@ else:
                     df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['assignee'] == sel_s_ol]
 
                 if df_tasks_filtered.empty:
-                    st.warning("No data matches the selected filters." if st.session_state.lang == "English" else "Không có dữ liệu phù hợp với bộ lọc.")
+                    st.warning("Không có dữ liệu phù hợp với bộ lọc.")
                 else:
                     df_user_projects = df_tasks_filtered.groupby('assignee')['project'].nunique().reset_index()
-                    df_user_projects.columns = ['Staff' if st.session_state.lang == "English" else 'Nhân sự', 'Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
+                    df_user_projects.columns = ['Nhân sự', 'Số lượng Dự án đang phụ trách']
 
-                    overloaded_users = df_user_projects[df_user_projects['Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách'] > 1]
+                    overloaded_users = df_user_projects[df_user_projects['Số lượng Dự án đang phụ trách'] > 1]
 
                     col_stat1, col_stat2 = st.columns(2)
                     with col_stat1:
-                        st.write("📊 **Number of Projects per Staff:**" if st.session_state.lang == "English" else "📊 **Số lượng Dự án đang xử lý theo từng Nhân sự:**")
+                        st.write("📊 **Số lượng Dự án đang xử lý theo từng Nhân sự:**")
                         fig_workload = px.bar(
                             df_user_projects, 
-                            x='Staff' if st.session_state.lang == "English" else 'Nhân sự', 
-                            y='Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách', 
-                            color='Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách',
+                            x='Nhân sự', 
+                            y='Số lượng Dự án đang phụ trách', 
+                            color='Số lượng Dự án đang phụ trách',
                             color_continuous_scale='Reds'
                         )
                         st.plotly_chart(fig_workload, use_container_width=True)
 
                     with col_stat2:
-                        st.write("⚠️ **Project Overload Warning:**" if st.session_state.lang == "English" else "⚠️ **Cảnh báo Chồng chéo Dự án:**")
+                        st.write("⚠️ **Cảnh báo Chồng chéo Dự án:**")
                         if not overloaded_users.empty:
                             for _, row in overloaded_users.iterrows():
-                                staff_name = row['Staff' if st.session_state.lang == "English" else 'Nhân sự']
-                                proj_count = row['Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
-                                st.error(f"🚨 **{staff_name}** is handling **{proj_count} projects** simultaneously!" if st.session_state.lang == "English" else f"🚨 **{staff_name}** đang tham gia **{proj_count} dự án** cùng lúc!")
+                                staff_name = row['Nhân sự']
+                                proj_count = row['Số lượng Dự án đang phụ trách']
+                                st.error(f"🚨 **{staff_name}** đang tham gia **{proj_count} dự án** cùng lúc!")
                                 user_pjs = df_tasks[df_tasks['assignee'] == staff_name]['project'].unique()
-                                st.write(f"👉 Projects: *{', '.join(user_pjs)}*" if st.session_state.lang == "English" else f"👉 Các dự án: *{', '.join(user_pjs)}*")
+                                st.write(f"👉 Các dự án: *{', '.join(user_pjs)}*")
                         else:
-                            st.success("✅ No staff members are currently assigned to multiple projects simultaneously." if st.session_state.lang == "English" else "✅ Hiện không có nhân sự nào bị phân bổ hơn 1 dự án đồng thời.")
+                            st.success("✅ Hiện không có nhân sự nào bị phân bổ hơn 1 dự án đồng thời.")
 
                     st.markdown("---")
-                    st.write("🔍 **Task Allocation Matrix (Staff vs Project):**" if st.session_state.lang == "English" else "🔍 **Ma trận phân bổ Đầu việc theo Nhân sự & Dự án:**")
+                    st.write("🔍 **Ma trận phân bổ Đầu việc theo Nhân sự & Dự án:**")
                     pivot_df = pd.pivot_table(
                         df_tasks_filtered, 
                         index='assignee', 
@@ -586,19 +617,19 @@ else:
                     st.dataframe(pivot_df, use_container_width=True)
 
         except Exception as e:
-            st.error(f"Analysis Error: {e}" if st.session_state.lang == "English" else f"Lỗi khi phân tích chồng chéo: {e}")
+            st.error(f"Lỗi khi phân tích chồng chéo: {e}")
 
     # --- CHỨC NĂNG: LOG THỜI GIAN CÔNG VIỆC ---
     elif choice == t["menu_time_log"]:
-        st.subheader("Daily Timesheet & Progress Update" if st.session_state.lang == "English" else "Cập nhật báo cáo tiến độ công việc hàng ngày")
+        st.subheader("Cập nhật báo cáo tiến độ công việc hàng ngày")
         try:
             df_display = get_scoped_tasks_df()
 
             if df_display.empty:
-                st.warning("You have no assigned tasks or the list is empty." if st.session_state.lang == "English" else "Bạn chưa được giao bất kỳ công việc nào hoặc danh sách trống.")
+                st.warning("Bạn chưa được giao bất kỳ công việc nào hoặc danh sách trống.")
             else:
                 task_options = df_display.apply(lambda r: f"[{r['project']}] {r['task_name']}", axis=1).tolist()
-                selected_task = st.selectbox("Select task you worked on:" if st.session_state.lang == "English" else "Chọn đầu việc vừa thực hiện:", task_options)
+                selected_task = st.selectbox("Chọn đầu việc vừa thực hiện:", task_options)
 
                 task_index = task_options.index(selected_task)
                 task_db_id = int(df_display.iloc[task_index]['id'])
@@ -609,59 +640,55 @@ else:
                     status_options_list = ["Chưa bắt đầu", "Đang làm", "Hoàn thành"]
                     current_st = df_display.iloc[task_index]['status']
                     idx = status_options_list.index(current_st) if current_st in status_options_list else 0
-                    status_update = st.selectbox(
-                        "Update Status:" if st.session_state.lang == "English" else "Cập nhật trạng thái thực tế:",
-                        status_options_list,
-                        index=idx
-                    )
+                    status_update = st.selectbox("Cập nhật trạng thái thực tế:", status_options_list, index=idx)
                 with col_right:
-                    added_hours_today = st.number_input("Hours spent today:" if st.session_state.lang == "English" else "Số giờ cống hiến thêm hôm nay:", min_value=0.0, step=0.5, format="%.1f")
+                    added_hours_today = st.number_input("Số giờ cống hiến thêm hôm nay:", min_value=0.0, step=0.5, format="%.1f")
 
-                if st.button("Save Logs & Cumulative Hours" if st.session_state.lang == "English" else "Lưu Logs & Cộng dồn thời gian"):
+                if st.button("Lưu Logs & Cộng dồn thời gian"):
                     new_cumulative_hours = current_logged_hours + added_hours_today
                     conn.table("tasks").update({
                         "status": status_update,
                         "hours_spent": new_cumulative_hours,
                         "date_updated": datetime.now().strftime("%Y-%m-%d")
                     }).eq("id", task_db_id).execute()
-                    st.success(f"Saved! Total task hours: {new_cumulative_hours} hrs." if st.session_state.lang == "English" else f"Đã lưu thành công! Tổng thời gian: {new_cumulative_hours} giờ.")
+                    st.success(f"Đã lưu thành công! Tổng thời gian: {new_cumulative_hours} giờ.")
                     st.rerun()
         except Exception as e:
-            st.error(f"Update Error: {e}" if st.session_state.lang == "English" else f"Lỗi cập nhật dữ liệu: {e}")
+            st.error(f"Lỗi cập nhật dữ liệu: {e}")
 
     # --- CHỨC NĂNG: ĐỔI MẬT KHẨU CÁ NHÂN ---
     elif choice == t["menu_change_pw"]:
-        st.subheader("Change Password" if st.session_state.lang == "English" else "Đổi Mật khẩu Tài khoản")
+        st.subheader("Đổi Mật khẩu Tài khoản")
         with st.form("change_password_form"):
-            old_pw = st.text_input("Current Password" if st.session_state.lang == "English" else "Mật khẩu hiện tại", type="password")
-            new_pw = st.text_input("New Password" if st.session_state.lang == "English" else "Mật khẩu mới", type="password")
-            confirm_pw = st.text_input("Confirm New Password" if st.session_state.lang == "English" else "Xác nhận mật khẩu mới", type="password")
+            old_pw = st.text_input("Mật khẩu hiện tại", type="password")
+            new_pw = st.text_input("Mật khẩu mới", type="password")
+            confirm_pw = st.text_input("Xác nhận mật khẩu mới", type="password")
             
-            submit_pw = st.form_submit_button("Update Password" if st.session_state.lang == "English" else "Xác nhận đổi mật khẩu")
+            submit_pw = st.form_submit_button("Xác nhận đổi mật khẩu")
             
             if submit_pw:
                 if not old_pw or not new_pw or not confirm_pw:
-                    st.error("Please fill in all fields!" if st.session_state.lang == "English" else "Vui lòng điền đầy đủ thông tin!")
+                    st.error("Vui lòng điền đầy đủ thông tin!")
                 elif new_pw != confirm_pw:
-                    st.error("New password and confirmation do not match!" if st.session_state.lang == "English" else "Mật khẩu mới và xác nhận mật khẩu không khớp!")
+                    st.error("Mật khẩu mới và xác nhận mật khẩu không khớp!")
                 else:
                     try:
                         res_user = execute_query(conn.table("users").select("*").eq("username", st.session_state.username), ttl=0)
                         if res_user.data:
                             current_db_pw = str(res_user.data[0]["password"])
                             if current_db_pw != old_pw:
-                                st.error("Current password is incorrect!" if st.session_state.lang == "English" else "Mật khẩu hiện tại không chính xác!")
+                                st.error("Mật khẩu hiện tại không chính xác!")
                             else:
                                 conn.table("users").update({"password": new_pw}).eq("username", st.session_state.username).execute()
-                                st.success("Password changed successfully!" if st.session_state.lang == "English" else "Đổi mật khẩu thành công!")
+                                st.success("Đổi mật khẩu thành công!")
                         else:
-                            st.error("User not found." if st.session_state.lang == "English" else "Không tìm thấy thông tin tài khoản.")
+                            st.error("Không tìm thấy thông tin tài khoản.")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
     # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ ---
     elif choice == t["menu_user_mgmt"]:
-        st.subheader("User Account Management" if st.session_state.lang == "English" else "Quản lý nhân sự")
+        st.subheader("Quản lý nhân sự")
         try:
             res_users = execute_query(conn.table("users").select("username, name, role"), ttl=0)
             df_users = pd.DataFrame(res_users.data) if res_users.data else pd.DataFrame()
@@ -692,20 +719,19 @@ else:
                         st.rerun()
 
             st.markdown("---")
-            st.write("➕ **Create New Account:**" if st.session_state.lang == "English" else "➕ **Thêm tài khoản nhân sự mới:**")
+            st.write("➕ **Thêm tài khoản nhân viên mới:**")
             with st.form("add_user_form", clear_on_submit=True):
-                new_username = st.text_input("Username (no spaces)" if st.session_state.lang == "English" else "Tài khoản (viết liền không dấu)")
-                new_password = st.text_input("Password" if st.session_state.lang == "English" else "Mật khẩu", type="password")
-                new_name = st.text_input("Full Name" if st.session_state.lang == "English" else "Họ và tên")
-                
-                new_role = st.selectbox("Role" if st.session_state.lang == "English" else "Vai trò", ["Nhân viên", "Associate/Senior"])
+                new_username = st.text_input("Tài khoản (viết liền không dấu)")
+                new_password = st.text_input("Mật khẩu", type="password")
+                new_name = st.text_input("Họ và tên")
+                new_role = st.selectbox("Vai trò", ["Nhân viên", "Associate/Senior"])
 
-                if st.form_submit_button("Create Account" if st.session_state.lang == "English" else "Tạo tài khoản"):
+                if st.form_submit_button("Tạo tài khoản"):
                     clean_new_username = new_username.strip().lower()
                     if not clean_new_username or not new_password or not new_name.strip():
-                        st.error("Please fill in all fields!" if st.session_state.lang == "English" else "Vui lòng điền đầy đủ thông tin!")
+                        st.error("Vui lòng điền đầy đủ thông tin!")
                     elif not df_users.empty and clean_new_username in df_users["username"].str.lower().tolist():
-                        st.error("Account already exists!" if st.session_state.lang == "English" else "Tài khoản này đã tồn tại!")
+                        st.error("Tài khoản này đã tồn tại!")
                     else:
                         conn.table("users").insert({
                             "username": clean_new_username,
@@ -713,21 +739,23 @@ else:
                             "name": new_name.strip(),
                             "role": new_role
                         }).execute()
-                        st.success(f"Account '{clean_new_username}' created!" if st.session_state.lang == "English" else f"Đã tạo tài khoản '{clean_new_username}'!")
+                        st.success(f"Đã tạo tài khoản '{clean_new_username}'!")
                         st.rerun()
 
             if is_super_admin:
                 st.markdown("---")
-                st.write("🗑️ **Delete Account:**" if st.session_state.lang == "English" else "🗑️ **Xóa tài khoản (Chỉ General Manager):**")
+                st.error("⚠️ **Xóa tài khoản (Chỉ General Manager):**")
                 if not df_users.empty:
                     del_options = [u for u in df_users["username"].tolist() if u != st.session_state.username]
                     if del_options:
-                        del_user = st.selectbox("Select account to delete" if st.session_state.lang == "English" else "Chọn tài khoản cần xóa", del_options)
-                        if st.button("Delete Account" if st.session_state.lang == "English" else "Xóa tài khoản"):
-                            conn.table("users").delete().eq("username", del_user).execute()
-                            st.success(f"Account '{del_user}' deleted!" if st.session_state.lang == "English" else f"Đã xóa tài khoản '{del_user}'!")
-                            st.rerun()
+                        del_user = st.selectbox("Chọn tài khoản cần xóa", del_options)
+                        confirm_del_user = st.checkbox("Tôi xác nhận muốn xóa tài khoản này.")
+                        if confirm_del_user:
+                            if st.button("Xóa tài khoản"):
+                                conn.table("users").delete().eq("username", del_user).execute()
+                                st.success(f"Đã xóa tài khoản '{del_user}'!")
+                                st.rerun()
                     else:
-                        st.info("No other accounts to delete." if st.session_state.lang == "English" else "Không có tài khoản nào khác để xóa.")
+                        st.info("Không có tài khoản nào khác để xóa.")
         except Exception as e:
-            st.error(f"User Management Error: {e}" if st.session_state.lang == "English" else f"Lỗi quản lý nhân sự: {e}")
+            st.error(f"Lỗi quản lý nhân sự: {e}")
