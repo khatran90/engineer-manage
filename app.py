@@ -36,7 +36,7 @@ if not st.session_state.logged_in:
             else:
                 try:
                     # Truy vấn tìm tài khoản trong bảng 'users' trên Supabase
-                    res = conn.table("users").select("*").eq("username", username_input.strip().lower()).execute()
+                    res = conn.table("users").select("*").eq("username", username_input.strip().lower()).execute(ttl=0)
                     
                     # SỬA ĐÚNG LOGIC ĐỌC PHẦN TỬ TRONG MẢNG (LIST DATA):
                     if res.data and len(res.data) > 0:
