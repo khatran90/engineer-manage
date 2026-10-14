@@ -15,7 +15,7 @@ conn = st.connection(
     key=st.secrets["SUPABASE_KEY"]
 )
 
-# --- 2. KHỞI TẠO SESSION STATE (ĐĂNG NHẬP & NGÔN NGỮ) ---
+# --- 2. KHỞI TẠO SESSION STATE ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.name = ""
@@ -25,7 +25,7 @@ if "logged_in" not in st.session_state:
 if "lang" not in st.session_state:
     st.session_state.lang = "Tiếng Việt"
 
-# --- BẢNG TỪ ĐIỂN ĐA NGÔN NGỮ (VI / EN) ---
+# --- BẢNG TỪ ĐIỂN ĐA NGÔN NGỮ CHI TIẾT ---
 translations = {
     "Tiếng Việt": {
         "lang_label": "🌐 Ngôn ngữ / Language",
@@ -42,12 +42,20 @@ translations = {
         "logout_btn": "🔓 Đăng xuất",
         "hello": "👋 Chào",
         "role": "Vai trò",
+        # Role names
+        "role_manager": "Quản lý",
+        "role_staff": "Nhân viên",
+        # Status names
+        "st_not_started": "Chưa bắt đầu",
+        "st_in_progress": "Đang làm",
+        "st_completed": "Hoàn thành",
         # Menu
         "menu_overview": "📊 Báo cáo tổng quan",
         "menu_project_mgmt": "📁 Quản lý & Cập nhật Dự án",
         "menu_add_task": "➕ Giao việc mới (Quản lý)",
         "menu_overlap": "🔀 Phân tích Chồng chéo & Phân bổ",
         "menu_time_log": "⏱️ Log thời gian công việc",
+        "menu_change_pw": "🔑 Đổi mật khẩu cá nhân",
         "menu_user_mgmt": "👤 Quản lý nhân sự (Quản lý)",
         "main_title": "📋 Hệ thống Quản lý Dự án & Tiến độ Nhân sự",
     },
@@ -66,12 +74,20 @@ translations = {
         "logout_btn": "🔓 Logout",
         "hello": "👋 Hello",
         "role": "Role",
+        # Role names
+        "role_manager": "Manager",
+        "role_staff": "Staff",
+        # Status names
+        "st_not_started": "Not Started",
+        "st_in_progress": "In Progress",
+        "st_completed": "Completed",
         # Menu
         "menu_overview": "📊 Overview Report",
         "menu_project_mgmt": "📁 Project Management & Update",
         "menu_add_task": "➕ Assign New Task (Manager)",
         "menu_overlap": "🔀 Overlap & Workload Analysis",
         "menu_time_log": "⏱️ Time Logging & Progress",
+        "menu_change_pw": "🔑 Change Password",
         "menu_user_mgmt": "👤 User Management (Manager)",
         "main_title": "📋 Project Management & Staff Progress System",
     }
@@ -81,7 +97,6 @@ t = translations[st.session_state.lang]
 
 # --- 3. GIAO DIỆN ĐĂNG NHẬP ---
 if not st.session_state.logged_in:
-    # Chọn ngôn ngữ ngay ở màn hình đăng nhập
     selected_lang = st.sidebar.selectbox(translations["Tiếng Việt"]["lang_label"], ["Tiếng Việt", "English"], index=0 if st.session_state.lang == "Tiếng Việt" else 1)
     if selected_lang != st.session_state.lang:
         st.session_state.lang = selected_lang
@@ -130,18 +145,28 @@ else:
 
     t = translations[st.session_state.lang]
 
+    # Hiển thị vai trò theo ngôn ngữ
+    display_role = t["role_manager"] if st.session_state.role in ["Quản lý", "Manager"] else t["role_staff"]
+
     st.sidebar.title(f"{t['hello']}, {st.session_state.name}")
-    st.sidebar.info(f"{t['role']}: **{st.session_state.role}**")
+    st.sidebar.info(f"{t['role']}: **{display_role}**")
     if st.sidebar.button(t["logout_btn"]):
         st.session_state.logged_in = False
         st.session_state.name, st.session_state.role, st.session_state.username = "", "", ""
         st.rerun()
 
-    menu = [t["menu_overview"], t["menu_time_log"]]
+    # Xây dựng Menu chung (Tất cả mọi user đều xem được Overview, Overlap, Time Log, Đổi mật khẩu)
+    menu = [
+        t["menu_overview"], 
+        t["menu_overlap"], 
+        t["menu_time_log"], 
+        t["menu_change_pw"]
+    ]
+    
+    # Riêng Quản lý có thêm các quyền quản lý dự án, giao việc, quản lý nhân sự
     if st.session_state.role in ["Quản lý", "Manager"]:
         menu.insert(1, t["menu_project_mgmt"])
         menu.insert(2, t["menu_add_task"])
-        menu.insert(3, t["menu_overlap"])
         menu.append(t["menu_user_mgmt"])
 
     choice = st.sidebar.selectbox("Function / Chức năng", menu)
@@ -157,6 +182,11 @@ else:
             if df.empty:
                 st.info("No task data available." if st.session_state.lang == "English" else "Hiện tại chưa có dữ liệu công việc nào.")
             else:
+                # Đổi tên trạng thái hiển thị trên biểu đồ nếu là tiếng Anh
+                if st.session_state.lang == "English":
+                    status_map_en = {"Chưa bắt đầu": "Not Started", "Đang làm": "In Progress", "Hoàn thành": "Completed"}
+                    df['status'] = df['status'].map(status_map_en).fillna(df['status'])
+
                 kpi1, kpi2, kpi3 = st.columns(3)
                 kpi1.metric("Total Projects" if st.session_state.lang == "English" else "Tổng số lượng dự án", df['project'].nunique())
                 kpi2.metric("Total Hours Spent" if st.session_state.lang == "English" else "Tổng thời gian đã cống hiến", f"{df['hours_spent'].sum():.1f} hrs" if st.session_state.lang == "English" else f"{df['hours_spent'].sum():.1f} giờ")
@@ -366,7 +396,7 @@ else:
         except Exception as e:
             st.error(f"System Error: {e}" if st.session_state.lang == "English" else f"Lỗi hệ thống: {e}")
 
-    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO & PHÂN BỔ NHÂN SỰ ---
+    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO & PHÂN BỔ NHÂN SỰ (MỌI USER ĐỀU XEM ĐƯỢC) ---
     elif choice == t["menu_overlap"]:
         st.subheader("Workload Analysis & Project Overlap" if st.session_state.lang == "English" else "Phân tích Tải công việc & Sự chồng chéo Dự án của Nhân sự")
 
@@ -467,6 +497,39 @@ else:
                     st.rerun()
         except Exception as e:
             st.error(f"Update Error: {e}" if st.session_state.lang == "English" else f"Lỗi cập nhật dữ liệu: {e}")
+
+    # --- CHỨC NĂNG MỚI: ĐỔI MẬT KHẨU CÁ NHÂN ---
+    elif choice == t["menu_change_pw"]:
+        st.subheader("Change Password" if st.session_state.lang == "English" else "Đổi Mật khẩu Tài khoản")
+        
+        with st.form("change_password_form"):
+            old_pw = st.text_input("Current Password" if st.session_state.lang == "English" else "Mật khẩu hiện tại", type="password")
+            new_pw = st.text_input("New Password" if st.session_state.lang == "English" else "Mật khẩu mới", type="password")
+            confirm_pw = st.text_input("Confirm New Password" if st.session_state.lang == "English" else "Xác nhận mật khẩu mới", type="password")
+            
+            submit_pw = st.form_submit_button("Update Password" if st.session_state.lang == "English" else "Xác nhận đổi mật khẩu")
+            
+            if submit_pw:
+                if not old_pw or not new_pw or not confirm_pw:
+                    st.error("Please fill in all fields!" if st.session_state.lang == "English" else "Vui lòng điền đầy đủ thông tin!")
+                elif new_pw != confirm_pw:
+                    st.error("New password and confirmation do not match!" if st.session_state.lang == "English" else "Mật khẩu mới và xác nhận mật khẩu không khớp!")
+                else:
+                    try:
+                        # Kiểm tra mật khẩu cũ trong database
+                        res_user = execute_query(conn.table("users").select("*").eq("username", st.session_state.username), ttl=0)
+                        if res_user.data:
+                            current_db_pw = str(res_user.data[0]["password"])
+                            if current_db_pw != old_pw:
+                                st.error("Current password is incorrect!" if st.session_state.lang == "English" else "Mật khẩu hiện tại không chính xác!")
+                            else:
+                                # Tiến hành cập nhật mật khẩu mới
+                                conn.table("users").update({"password": new_pw}).eq("username", st.session_state.username).execute()
+                                st.success("Password changed successfully!" if st.session_state.lang == "English" else "Đổi mật khẩu thành công!")
+                        else:
+                            st.error("User not found." if st.session_state.lang == "English" else "Không tìm thấy thông tin tài khoản.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
 
     # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ ---
     elif choice == t["menu_user_mgmt"]:
