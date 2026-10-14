@@ -15,6 +15,15 @@ conn = st.connection(
     key=st.secrets["SUPABASE_KEY"]
 )
 
+
+def run_query(table, columns="*", filters=None):
+    """Đọc dữ liệu từ Supabase, trả về DataFrame (rỗng nếu không có dữ liệu)."""
+    q = conn.table(table).select(columns)
+    for k, v in (filters or {}).items():
+        q = q.eq(k, v)
+    return pd.DataFrame(q.execute().data)
+
+
 # --- 2. KHỞI TẠO TRẠNG THÁI ĐĂNG NHẬP (SESSION STATE) ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -36,10 +45,8 @@ if not st.session_state.logged_in:
                 st.error("Vui lòng điền đầy đủ tài khoản và mật khẩu!")
             else:
                 try:
-                    # Truy vấn ép buộc không lưu cache bằng conn.query(..., ttl=0)
                     clean_username = username_input.strip().lower()
-                    query_user = f"SELECT * FROM users WHERE username = '{clean_username}'"
-                    res = conn.query(query_user, ttl=0)
+                    res = run_query("users", "*", {"username": clean_username})
 
                     if res is not None and not res.empty:
                         user_info = res.iloc[0]  # Lấy hàng đầu tiên tìm thấy trong DataFrame
@@ -84,7 +91,7 @@ else:
 
         try:
             # Đọc danh sách tác vụ trực tiếp không qua cache
-            df = conn.query("SELECT * FROM tasks", ttl=0)
+            df = run_query("tasks")
 
             if df is None or df.empty:
                 st.info("Hiện tại chưa có dữ liệu công việc nào được tạo lập trên hệ thống.")
@@ -124,7 +131,7 @@ else:
 
         try:
             # Truy vấn danh sách nhân viên từ database
-            df_us = conn.query("SELECT name FROM users WHERE role = 'Nhân viên'", ttl=0)
+            df_us = run_query("users", "name", {"role": "Nhân viên"})
             staff_list = df_us['name'].tolist() if (df_us is not None and not df_us.empty) else []
 
             if not staff_list:
@@ -160,7 +167,7 @@ else:
         st.subheader("Bảng chấm công và cập nhật báo cáo tiến độ công việc hàng ngày")
 
         try:
-            df_all = conn.query("SELECT * FROM tasks", ttl=0)
+            df_all = run_query("tasks")
 
             # Cơ chế lọc thông minh: Nếu là nhân viên, hệ thống ép buộc chỉ được sửa việc mang tên mình.
             if st.session_state.role == "Nhân viên":
@@ -207,7 +214,7 @@ else:
         st.subheader("Quản lý tài khoản nhân sự")
 
         try:
-            df_users = conn.query("SELECT username, name, role FROM users", ttl=0)
+            df_users = run_query("users", "username, name, role")
             if df_users is not None and not df_users.empty:
                 st.write("📋 **Danh sách tài khoản hiện có:**")
                 st.dataframe(df_users, use_container_width=True)
