@@ -199,55 +199,55 @@ else:
                     }).eq("id", task_db_id).execute()
                     st.success(f"Đã lưu! Tổng thời gian của đầu việc: {new_cumulative_hours} giờ.")
                     st.rerun()
-                except Exception as e:
-                st.error(f"Lỗi cập nhật dữ liệu: {e}")
+        except Exception as e:
+            st.error(f"Lỗi cập nhật dữ liệu: {e}")
 
-            # --- CHỨC NĂNG 4: QUẢN LÝ NHÂN SỰ (CHỈ QUẢN LÝ THẤY) ---
-            elif choice == "👤 Quản lý nhân sự (Quản lý)":
-            st.subheader("Quản lý tài khoản nhân sự")
+    # --- CHỨC NĂNG 4: QUẢN LÝ NHÂN SỰ (CHỈ QUẢN LÝ THẤY) ---
+    elif choice == "👤 Quản lý nhân sự (Quản lý)":
+        st.subheader("Quản lý tài khoản nhân sự")
 
-            try:
-                df_users = conn.query("SELECT username, name, role FROM users", ttl=0)
-                if df_users is not None and not df_users.empty:
-                    st.write("📋 **Danh sách tài khoản hiện có:**")
-                    st.dataframe(df_users, use_container_width=True)
+        try:
+            df_users = conn.query("SELECT username, name, role FROM users", ttl=0)
+            if df_users is not None and not df_users.empty:
+                st.write("📋 **Danh sách tài khoản hiện có:**")
+                st.dataframe(df_users, use_container_width=True)
 
-                st.markdown("---")
-                st.write("➕ **Thêm tài khoản mới:**")
-                with st.form("add_user_form", clear_on_submit=True):
-                    new_username = st.text_input("Tài khoản (viết liền không dấu)")
-                    new_password = st.text_input("Mật khẩu", type="password")
-                    new_name = st.text_input("Họ và tên")
-                    new_role = st.selectbox("Vai trò", ["Nhân viên", "Quản lý"])
+            st.markdown("---")
+            st.write("➕ **Thêm tài khoản mới:**")
+            with st.form("add_user_form", clear_on_submit=True):
+                new_username = st.text_input("Tài khoản (viết liền không dấu)")
+                new_password = st.text_input("Mật khẩu", type="password")
+                new_name = st.text_input("Họ và tên")
+                new_role = st.selectbox("Vai trò", ["Nhân viên", "Quản lý"])
 
-                    if st.form_submit_button("Tạo tài khoản"):
-                        clean_new_username = new_username.strip().lower()
-                        if not clean_new_username or not new_password or not new_name.strip():
-                            st.error("Vui lòng điền đầy đủ thông tin!")
-                        elif df_users is not None and not df_users.empty and \
-                                clean_new_username in df_users["username"].str.lower().tolist():
-                            st.error("Tài khoản này đã tồn tại!")
-                        else:
-                            conn.table("users").insert({
-                                "username": clean_new_username,
-                                "password": new_password,
-                                "name": new_name.strip(),
-                                "role": new_role
-                            }).execute()
-                            st.success(f"Đã tạo tài khoản '{clean_new_username}'!")
-                            st.rerun()
-
-                st.markdown("---")
-                st.write("🗑️ **Xóa tài khoản:**")
-                if df_users is not None and not df_users.empty:
-                    del_options = [u for u in df_users["username"].tolist() if u != st.session_state.username]
-                    if del_options:
-                        del_user = st.selectbox("Chọn tài khoản cần xóa", del_options)
-                        if st.button("Xóa tài khoản"):
-                            conn.table("users").delete().eq("username", del_user).execute()
-                            st.success(f"Đã xóa tài khoản '{del_user}'!")
-                            st.rerun()
+                if st.form_submit_button("Tạo tài khoản"):
+                    clean_new_username = new_username.strip().lower()
+                    if not clean_new_username or not new_password or not new_name.strip():
+                        st.error("Vui lòng điền đầy đủ thông tin!")
+                    elif df_users is not None and not df_users.empty and \
+                            clean_new_username in df_users["username"].str.lower().tolist():
+                        st.error("Tài khoản này đã tồn tại!")
                     else:
-                        st.info("Không có tài khoản nào khác để xóa.")
-            except Exception as e:
-                st.error(f"Lỗi quản lý nhân sự: {e}")
+                        conn.table("users").insert({
+                            "username": clean_new_username,
+                            "password": new_password,
+                            "name": new_name.strip(),
+                            "role": new_role
+                        }).execute()
+                        st.success(f"Đã tạo tài khoản '{clean_new_username}'!")
+                        st.rerun()
+
+            st.markdown("---")
+            st.write("🗑️ **Xóa tài khoản:**")
+            if df_users is not None and not df_users.empty:
+                del_options = [u for u in df_users["username"].tolist() if u != st.session_state.username]
+                if del_options:
+                    del_user = st.selectbox("Chọn tài khoản cần xóa", del_options)
+                    if st.button("Xóa tài khoản"):
+                        conn.table("users").delete().eq("username", del_user).execute()
+                        st.success(f"Đã xóa tài khoản '{del_user}'!")
+                        st.rerun()
+                else:
+                    st.info("Không có tài khoản nào khác để xóa.")
+        except Exception as e:
+            st.error(f"Lỗi quản lý nhân sự: {e}")
