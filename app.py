@@ -611,4 +611,105 @@ else:
 
     # --- CHỨC NĂNG: ĐỔI MẬT KHẨU CÁ NHÂN ---
     elif choice == t["menu_change_pw"]:
-        st.
+        st.subheader("Change Password" if st.session_state.lang == "English" else "Đổi Mật khẩu Tài khoản")
+        with st.form("change_password_form"):
+            old_pw = st.text_input("Current Password" if st.session_state.lang == "English" else "Mật khẩu hiện tại", type="password")
+            new_pw = st.text_input("New Password" if st.session_state.lang == "English" else "Mật khẩu mới", type="password")
+            confirm_pw = st.text_input("Confirm New Password" if st.session_state.lang == "English" else "Xác nhận mật khẩu mới", type="password")
+            
+            submit_pw = st.form_submit_button("Update Password" if st.session_state.lang == "English" else "Xác nhận đổi mật khẩu")
+            
+            if submit_pw:
+                if not old_pw or not new_pw or not confirm_pw:
+                    st.error("Please fill in all fields!" if st.session_state.lang == "English" else "Vui lòng điền đầy đủ thông tin!")
+                elif new_pw != confirm_pw:
+                    st.error("New password and confirmation do not match!" if st.session_state.lang == "English" else "Mật khẩu mới và xác nhận mật khẩu không khớp!")
+                else:
+                    try:
+                        res_user = execute_query(conn.table("users").select("*").eq("username", st.session_state.username), ttl=0)
+                        if res_user.data:
+                            current_db_pw = str(res_user.data[0]["password"])
+                            if current_db_pw != old_pw:
+                                st.error("Current password is incorrect!" if st.session_state.lang == "English" else "Mật khẩu hiện tại không chính xác!")
+                            else:
+                                conn.table("users").update({"password": new_pw}).eq("username", st.session_state.username).execute()
+                                st.success("Password changed successfully!" if st.session_state.lang == "English" else "Đổi mật khẩu thành công!")
+                        else:
+                            st.error("User not found." if st.session_state.lang == "English" else "Không tìm thấy thông tin tài khoản.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ (BỔ SUNG THÊM TÍNH NĂNG SỬA VAI TRÒ) ---
+    elif choice == t["menu_user_mgmt"]:
+        st.subheader("User Account Management" if st.session_state.lang == "English" else "Quản lý nhân sự")
+        try:
+            res_users = execute_query(conn.table("users").select("username, name, role"), ttl=0)
+            df_users = pd.DataFrame(res_users.data) if res_users.data else pd.DataFrame()
+
+            if not df_users.empty:
+                search_user_box = st.text_input("🔍 Tìm kiếm tài khoản nhân sự:", placeholder="Nhập tên hoặc username...")
+                df_users_display = df_users.copy()
+                if search_user_box.strip():
+                    mask_u = df_users_display.apply(lambda row: row.astype(str).str.contains(search_user_box.strip(), case=False).any(), axis=1)
+                    df_users_display = df_users_display[mask_u]
+                st.dataframe(df_users_display, use_container_width=True)
+
+            # --- TÍNH NĂNG MỚI: SỬA VAI TRÒ TÀI KHOẢN ---
+            if not df_users.empty:
+                st.markdown("---")
+                st.write("✏️ **Cập nhật / Sửa vai trò nhân sự:**")
+                with st.form("update_user_role_form"):
+                    selected_target_user = st.selectbox("Chọn tài khoản cần đổi vai trò:", df_users["username"].tolist())
+                    
+                    # Lấy vai trò hiện tại của tài khoản đang chọn
+                    current_role_val = df_users[df_users["username"] == selected_target_user]["role"].values[0]
+                    role_options_list = ["Nhân viên", "Associate/Senior", "General Manager"]
+                    curr_idx = role_options_list.index(current_role_val) if current_role_val in role_options_list else 0
+                    
+                    new_assigned_role = st.selectbox("Chọn vai trò mới:", role_options_list, index=curr_idx)
+
+                    if st.form_submit_button("Lưu thay đổi vai trò"):
+                        conn.table("users").update({"role": new_assigned_role}).eq("username", selected_target_user).execute()
+                        st.success(f"Đã cập nhật vai trò của tài khoản '{selected_target_user}' thành '{new_assigned_role}' thành công!")
+                        st.rerun()
+
+            st.markdown("---")
+            st.write("➕ **Create New Account:**" if st.session_state.lang == "English" else "➕ **Thêm tài khoản nhân sự mới:**")
+            with st.form("add_user_form", clear_on_submit=True):
+                new_username = st.text_input("Username (no spaces)" if st.session_state.lang == "English" else "Tài khoản (viết liền không dấu)")
+                new_password = st.text_input("Password" if st.session_state.lang == "English" else "Mật khẩu", type="password")
+                new_name = st.text_input("Full Name" if st.session_state.lang == "English" else "Họ và tên")
+                
+                new_role = st.selectbox("Role" if st.session_state.lang == "English" else "Vai trò", ["Nhân viên", "Associate/Senior"])
+
+                if st.form_submit_button("Create Account" if st.session_state.lang == "English" else "Tạo tài khoản"):
+                    clean_new_username = new_username.strip().lower()
+                    if not clean_new_username or not new_password or not new_name.strip():
+                        st.error("Please fill in all fields!" if st.session_state.lang == "English" else "Vui lòng điền đầy đủ thông tin!")
+                    elif not df_users.empty and clean_new_username in df_users["username"].str.lower().tolist():
+                        st.error("Account already exists!" if st.session_state.lang == "English" else "Tài khoản này đã tồn tại!")
+                    else:
+                        conn.table("users").insert({
+                            "username": clean_new_username,
+                            "password": new_password,
+                            "name": new_name.strip(),
+                            "role": new_role
+                        }).execute()
+                        st.success(f"Account '{clean_new_username}' created!" if st.session_state.lang == "English" else f"Đã tạo tài khoản '{clean_new_username}'!")
+                        st.rerun()
+
+            if is_super_admin:
+                st.markdown("---")
+                st.write("🗑️ **Delete Account:**" if st.session_state.lang == "English" else "🗑️ **Xóa tài khoản (Chỉ General Manager):**")
+                if not df_users.empty:
+                    del_options = [u for u in df_users["username"].tolist() if u != st.session_state.username]
+                    if del_options:
+                        del_user = st.selectbox("Select account to delete" if st.session_state.lang == "English" else "Chọn tài khoản cần xóa", del_options)
+                        if st.button("Delete Account" if st.session_state.lang == "English" else "Xóa tài khoản"):
+                            conn.table("users").delete().eq("username", del_user).execute()
+                            st.success(f"Account '{del_user}' deleted!" if st.session_state.lang == "English" else f"Đã xóa tài khoản '{del_user}'!")
+                            st.rerun()
+                    else:
+                        st.info("No other accounts to delete." if st.session_state.lang == "English" else "Không có tài khoản nào khác để xóa.")
+        except Exception as e:
+            st.error(f"User Management Error: {e}" if st.session_state.lang == "English" else f"Lỗi quản lý nhân sự: {e}")
