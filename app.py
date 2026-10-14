@@ -42,7 +42,8 @@ translations = {
         "logout_btn": "🔓 Đăng xuất",
         "hello": "👋 Chào",
         "role": "Vai trò",
-        "role_manager": "Quản lý",
+        "role_super_admin": "Tổng quản lý",
+        "role_sub_admin": "Quản lý phó",
         "role_staff": "Nhân viên",
         "st_not_started": "Chưa bắt đầu",
         "st_in_progress": "Đang làm",
@@ -54,11 +55,17 @@ translations = {
         "menu_overlap": "🔀 Phân tích Chồng chéo & Phân bổ",
         "menu_time_log": "⏱️ Log thời gian công việc",
         "menu_change_pw": "🔑 Đổi mật khẩu cá nhân",
-        "menu_user_mgmt": "👤 Quản lý nhân sự (Quản lý)",
+        "menu_user_mgmt": "👤 Quản lý nhân sự (Tổng quản lý)",
         "main_title": "📋 Hệ thống Quản lý Dự án & Tiến độ Nhân sự",
         "filter_project": "🔍 Lọc theo Dự án:",
         "filter_staff": "👤 Lọc theo Nhân sự:",
         "all": "Tất cả (All)",
+        "dashboard_title": "Bảng số liệu tổng quan & Dashboard Nâng cao",
+        "project_progress_title": "📈 **Tiến độ % hoàn thành các Dự án:**",
+        "gantt_title": "🗓️ **Biểu đồ Lịch trình công việc (Gantt Chart):**",
+        "detailed_task_list": "📋 **Danh sách chi tiết công việc:**",
+        "no_data": "Hiện tại chưa có dữ liệu công việc nào.",
+        "filter_warning": "Không có dữ liệu phù hợp với bộ lọc đã chọn.",
     },
     "English": {
         "lang_label": "🌐 Language / Ngôn ngữ",
@@ -75,7 +82,8 @@ translations = {
         "logout_btn": "🔓 Logout",
         "hello": "👋 Hello",
         "role": "Role",
-        "role_manager": "Manager",
+        "role_super_admin": "Super Admin",
+        "role_sub_admin": "Sub Manager",
         "role_staff": "Staff",
         "st_not_started": "Not Started",
         "st_in_progress": "In Progress",
@@ -87,11 +95,17 @@ translations = {
         "menu_overlap": "🔀 Overlap & Workload Analysis",
         "menu_time_log": "⏱️ Time Logging & Progress",
         "menu_change_pw": "🔑 Change Password",
-        "menu_user_mgmt": "👤 User Management (Manager)",
+        "menu_user_mgmt": "👤 User Management (Super Admin)",
         "main_title": "📋 Project Management & Staff Progress System",
         "filter_project": "🔍 Filter by Project:",
         "filter_staff": "👤 Filter by Staff:",
         "all": "All",
+        "dashboard_title": "Overview Report & Advanced Dashboard",
+        "project_progress_title": "📈 **Project Completion Progress (%):**",
+        "gantt_title": "🗓️ **Task Timeline (Gantt Chart):**",
+        "detailed_task_list": "📋 **Detailed Task List:**",
+        "no_data": "No task data available.",
+        "filter_warning": "No data matches the selected filters.",
     }
 }
 
@@ -127,7 +141,7 @@ if not st.session_state.logged_in:
                         user_info = res.data[0]
                         if str(user_info["password"]) == str(password_input):
                             st.session_state.logged_in = True
-                            st.session_state.role = user_info["role"]
+                            st.session_state.role = user_info["role"] # Có thể là 'Tổng quản lý', 'Quản lý phó', 'Nhân viên'
                             st.session_state.name = user_info["name"]
                             st.session_state.username = user_info["username"]
                             st.success(t["login_success"])
@@ -147,7 +161,14 @@ else:
 
     t = translations[st.session_state.lang]
 
-    display_role = t["role_manager"] if st.session_state.role in ["Quản lý", "Manager"] else t["role_staff"]
+    # Hiển thị vai trò theo phân cấp
+    role_val = st.session_state.role
+    if role_val in ["Tổng quản lý", "Super Admin"]:
+        display_role = t["role_super_admin"]
+    elif role_val in ["Quản lý phó", "Sub Manager"]:
+        display_role = t["role_sub_admin"]
+    else:
+        display_role = t["role_staff"]
 
     st.sidebar.title(f"{t['hello']}, {st.session_state.name}")
     st.sidebar.info(f"{t['role']}: **{display_role}**")
@@ -156,6 +177,7 @@ else:
         st.session_state.name, st.session_state.role, st.session_state.username = "", "", ""
         st.rerun()
 
+    # Xây dựng Menu linh hoạt theo cấp bậc
     menu = [
         t["menu_overview"], 
         t["menu_overlap"], 
@@ -163,25 +185,28 @@ else:
         t["menu_change_pw"]
     ]
     
-    if st.session_state.role in ["Quản lý", "Manager"]:
+    # Cả Tổng quản lý và Quản lý phó đều có quyền quản lý dự án và giao việc
+    if role_val in ["Tổng quản lý", "Quản lý phó", "Super Admin", "Sub Manager"]:
         menu.insert(1, t["menu_project_mgmt"])
         menu.insert(2, t["menu_add_task"])
+    
+    # Chỉ có 'Tổng quản lý' mới có quyền quản lý tài khoản nhân sự / phân quyền cấp cao
+    if role_val in ["Tổng quản lý", "Super Admin"]:
         menu.append(t["menu_user_mgmt"])
 
     choice = st.sidebar.selectbox("Function / Chức năng", menu)
     st.title(t["main_title"])
 
-    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN (DASHBOARD NÂNG CẤP + BỘ LỌC) ---
+    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN (DASHBOARD) ---
     if choice == t["menu_overview"]:
-        st.subheader("Overview Report & Advanced Dashboard" if st.session_state.lang == "English" else "Bảng số liệu tổng quan & Dashboard Nâng cao")
+        st.subheader(t["dashboard_title"])
         try:
             res_tasks = execute_query(conn.table("tasks").select("*"), ttl=0)
             df = pd.DataFrame(res_tasks.data) if res_tasks.data else pd.DataFrame()
 
             if df.empty:
-                st.info("No task data available." if st.session_state.lang == "English" else "Hiện tại chưa có dữ liệu công việc nào.")
+                st.info(t["no_data"])
             else:
-                # --- KHU VỰC BỘ LỌC TOÀN CỤC CHO DASHBOARD ---
                 st.markdown("---")
                 col_f1, col_f2 = st.columns(2)
                 projects_list = [t["all"]] + sorted(df['project'].unique().tolist())
@@ -192,7 +217,6 @@ else:
                 with col_f2:
                     selected_staff_filter = st.selectbox(t["filter_staff"], staff_list_filter)
 
-                # Áp dụng bộ lọc
                 df_filtered = df.copy()
                 if selected_proj_filter != t["all"]:
                     df_filtered = df_filtered[df_filtered['project'] == selected_proj_filter]
@@ -200,13 +224,12 @@ else:
                     df_filtered = df_filtered[df_filtered['assignee'] == selected_staff_filter]
 
                 if df_filtered.empty:
-                    st.warning("Không có dữ liệu phù hợp với bộ lọc đã chọn.")
+                    st.warning(t["filter_warning"])
                 else:
                     if st.session_state.lang == "English":
                         status_map_en = {"Chưa bắt đầu": "Not Started", "Đang làm": "In Progress", "Hoàn thành": "Completed"}
                         df_filtered['status'] = df_filtered['status'].map(status_map_en).fillna(df_filtered['status'])
 
-                    # KPI Cards
                     kpi1, kpi2, kpi3 = st.columns(3)
                     kpi1.metric("Total Projects" if st.session_state.lang == "English" else "Tổng số lượng dự án", df_filtered['project'].nunique())
                     kpi2.metric("Total Hours Spent" if st.session_state.lang == "English" else "Tổng thời gian đã cống hiến", f"{df_filtered['hours_spent'].sum():.1f} hrs" if st.session_state.lang == "English" else f"{df_filtered['hours_spent'].sum():.1f} giờ")
@@ -215,7 +238,6 @@ else:
 
                     st.markdown("---")
 
-                    # Biểu đồ phân bổ
                     c1, c2 = st.columns(2)
                     with c1:
                         df_bar = df_filtered.groupby('project')['hours_spent'].sum().reset_index()
@@ -228,8 +250,7 @@ else:
 
                     st.markdown("---")
 
-                    # --- TÍNH NĂNG DASHBOARD MỚI 1: TIẾN ĐỘ % HOÀN THÀNH TỪNG DỰ ÁN ---
-                    st.write("📈 **Tiến độ % hoàn thành các Dự án:**" if st.session_state.lang == "English" else "📈 **Tiến độ % hoàn thành các Dự án:**")
+                    st.write(t["project_progress_title"])
                     proj_progress = []
                     for p in df_filtered['project'].unique():
                         p_df = df_filtered[df_filtered['project'] == p]
@@ -244,11 +265,10 @@ else:
 
                     st.markdown("---")
 
-                    # --- TÍNH NĂNG DASHBOARD MỚI 2: BIỂU ĐỒ GANTT LỊCH TRÌNH CÔNG VIỆC ---
                     if 'start_date' in df_filtered.columns and 'end_date' in df_filtered.columns:
                         df_gantt = df_filtered.dropna(subset=['start_date', 'end_date'])
                         if not df_gantt.empty:
-                            st.write("🗓️ **Biểu đồ Lịch trình công việc (Gantt Chart):**" if st.session_state.lang == "English" else "🗓️ **Biểu đồ Lịch trình công việc (Gantt Chart):**")
+                            st.write(t["gantt_title"])
                             fig_gantt = px.timeline(
                                 df_gantt, 
                                 x_start="start_date", 
@@ -262,15 +282,14 @@ else:
                             st.plotly_chart(fig_gantt, use_container_width=True)
 
                     st.markdown("---")
-                    st.write("📋 **Detailed Task List:**" if st.session_state.lang == "English" else "📋 **Danh sách chi tiết công việc:**")
+                    st.write(t["detailed_task_list"])
                     st.dataframe(df_filtered, use_container_width=True)
         except Exception as e:
             st.error(f"Error loading report: {e}" if st.session_state.lang == "English" else f"Lỗi tải báo cáo: {e}")
 
-    # --- CHỨC NĂNG: QUẢN LÝ, CHỈNH SỬA & XÓA DỰ ÁN + NHIỆM VỤ ---
+    # --- CHỨC NĂNG: QUẢN LÝ DỰ ÁN & NHIỆM VỤ ---
     elif choice == t["menu_project_mgmt"]:
         st.subheader("Project & Task Management" if st.session_state.lang == "English" else "Quản lý Danh mục Dự án & Nhiệm vụ")
-
         try:
             res_pj = execute_query(conn.table("projects").select("*").order("id", desc=True), ttl=0)
             df_pj = pd.DataFrame(res_pj.data) if res_pj.data else pd.DataFrame()
@@ -408,7 +427,6 @@ else:
     # --- CHỨC NĂNG: GIAO VIỆC MỚI ---
     elif choice == t["menu_add_task"]:
         st.subheader("Assign Task to Staff" if st.session_state.lang == "English" else "Giao nhiệm vụ cho Nhân viên")
-
         try:
             res_us = execute_query(conn.table("users").select("name").eq("role", "Nhân viên"), ttl=0)
             res_pj = execute_query(conn.table("projects").select("project_name").eq("status", "Đang triển khai"), ttl=0)
@@ -453,10 +471,9 @@ else:
         except Exception as e:
             st.error(f"System Error: {e}" if st.session_state.lang == "English" else f"Lỗi hệ thống: {e}")
 
-    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO & PHÂN BỔ (CÓ BỘ LỌC NHÂN SỰ / DỰ ÁN) ---
+    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO & PHÂN BỔ ---
     elif choice == t["menu_overlap"]:
         st.subheader("Workload Analysis & Project Overlap" if st.session_state.lang == "English" else "Phân tích Tải công việc & Sự chồng chéo Dự án của Nhân sự")
-
         try:
             res_tasks = execute_query(conn.table("tasks").select("*").neq("status", "Hoàn thành"), ttl=0)
             df_tasks = pd.DataFrame(res_tasks.data) if res_tasks.data else pd.DataFrame()
@@ -464,15 +481,14 @@ else:
             if df_tasks.empty:
                 st.info("No active tasks found." if st.session_state.lang == "English" else "Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu.")
             else:
-                # Bộ lọc cho phần phân tích chồng chéo
                 col_of1, col_of2 = st.columns(2)
                 p_options_ol = [t["all"]] + sorted(df_tasks['project'].unique().tolist())
                 s_options_ol = [t["all"]] + sorted(df_tasks['assignee'].unique().tolist())
 
                 with col_of1:
-                    sel_p_ol = st.selectbox("Lọc theo Dự án (Phân tích):" if st.session_state.lang == "English" else "Lọc theo Dự án (Phân tích):", p_options_ol, key="ol_p")
+                    sel_p_ol = st.selectbox("Filter by Project:" if st.session_state.lang == "English" else "Lọc theo Dự án (Phân tích):", p_options_ol, key="ol_p")
                 with col_of2:
-                    sel_s_ol = st.selectbox("Lọc theo Nhân sự (Phân tích):" if st.session_state.lang == "English" else "Lọc theo Nhân sự (Phân tích):", s_options_ol, key="ol_s")
+                    sel_s_ol = st.selectbox("Filter by Staff:" if st.session_state.lang == "English" else "Lọc theo Nhân sự (Phân tích):", s_options_ol, key="ol_s")
 
                 df_tasks_filtered = df_tasks.copy()
                 if sel_p_ol != t["all"]:
@@ -481,7 +497,7 @@ else:
                     df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['assignee'] == sel_s_ol]
 
                 if df_tasks_filtered.empty:
-                    st.warning("Không có dữ liệu phù hợp với bộ lọc.")
+                    st.warning("No data matches the selected filters." if st.session_state.lang == "English" else "Không có dữ liệu phù hợp với bộ lọc.")
                 else:
                     df_user_projects = df_tasks_filtered.groupby('assignee')['project'].nunique().reset_index()
                     df_user_projects.columns = ['Staff' if st.session_state.lang == "English" else 'Nhân sự', 'Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
@@ -577,7 +593,6 @@ else:
     # --- CHỨC NĂNG: ĐỔI MẬT KHẨU CÁ NHÂN ---
     elif choice == t["menu_change_pw"]:
         st.subheader("Change Password" if st.session_state.lang == "English" else "Đổi Mật khẩu Tài khoản")
-        
         with st.form("change_password_form"):
             old_pw = st.text_input("Current Password" if st.session_state.lang == "English" else "Mật khẩu hiện tại", type="password")
             new_pw = st.text_input("New Password" if st.session_state.lang == "English" else "Mật khẩu mới", type="password")
@@ -605,7 +620,7 @@ else:
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-    # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ ---
+    # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ (DÀNH RIÊNG CHO TỔNG QUẢN LÝ) ---
     elif choice == t["menu_user_mgmt"]:
         st.subheader("User Account Management" if st.session_state.lang == "English" else "Quản lý tài khoản nhân sự")
         try:
@@ -622,7 +637,8 @@ else:
                 new_username = st.text_input("Username (no spaces)" if st.session_state.lang == "English" else "Tài khoản (viết liền không dấu)")
                 new_password = st.text_input("Password" if st.session_state.lang == "English" else "Mật khẩu", type="password")
                 new_name = st.text_input("Full Name" if st.session_state.lang == "English" else "Họ và tên")
-                new_role = st.selectbox("Role" if st.session_state.lang == "English" else "Vai trò", ["Nhân viên", "Quản lý"])
+                # Cho phép chọn đầy đủ các cấp vai trò
+                new_role = st.selectbox("Role" if st.session_state.lang == "English" else "Vai trò", ["Nhân viên", "Quản lý phó", "Tổng quản lý"])
 
                 if st.form_submit_button("Create Account" if st.session_state.lang == "English" else "Tạo tài khoản"):
                     clean_new_username = new_username.strip().lower()
