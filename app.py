@@ -25,7 +25,7 @@ if "logged_in" not in st.session_state:
 if "lang" not in st.session_state:
     st.session_state.lang = "Tiếng Việt"
 
-# --- BẢNG TỪ ĐIỂN ĐA NGÔN NGỮ HOÀN CHỈNH ---
+# --- BẢNG TỪ ĐIỂN ĐA NGÔN NGỮ ---
 translations = {
     "Tiếng Việt": {
         "lang_label": "🌐 Ngôn ngữ / Language",
@@ -42,8 +42,8 @@ translations = {
         "logout_btn": "🔓 Đăng xuất",
         "hello": "👋 Chào",
         "role": "Vai trò",
-        "role_super_admin": "Tổng quản lý",
-        "role_sub_admin": "Quản lý phó",
+        "role_super_admin": "General Manager",
+        "role_sub_admin": "Associate/Senior",
         "role_staff": "Nhân viên",
         "st_not_started": "Chưa bắt đầu",
         "st_in_progress": "Đang làm",
@@ -51,11 +51,11 @@ translations = {
         # Menu
         "menu_overview": "📊 Báo cáo tổng quan",
         "menu_project_mgmt": "📁 Quản lý & Cập nhật Dự án",
-        "menu_add_task": "➕ Giao việc mới (Quản lý)",
+        "menu_add_task": "➕ Giao việc mới",
         "menu_overlap": "🔀 Phân tích Chồng chéo & Phân bổ",
         "menu_time_log": "⏱️ Log thời gian công việc",
         "menu_change_pw": "🔑 Đổi mật khẩu cá nhân",
-        "menu_user_mgmt": "👤 Quản lý nhân sự (Quản lý tổng)",
+        "menu_user_mgmt": "👤 Quản lý nhân sự",
         "main_title": "📋 Hệ thống Quản lý Dự án & Tiến độ Nhân sự",
         "filter_project": "🔍 Lọc theo Dự án:",
         "filter_staff": "👤 Lọc theo Nhân sự:",
@@ -82,8 +82,8 @@ translations = {
         "logout_btn": "🔓 Logout",
         "hello": "👋 Hello",
         "role": "Role",
-        "role_super_admin": "General Manager / Admin",
-        "role_sub_admin": "Sub Manager",
+        "role_super_admin": "General Manager",
+        "role_sub_admin": "Associate/Senior",
         "role_staff": "Staff",
         "st_not_started": "Not Started",
         "st_in_progress": "In Progress",
@@ -91,11 +91,11 @@ translations = {
         # Menu
         "menu_overview": "📊 Overview Report",
         "menu_project_mgmt": "📁 Project Management & Update",
-        "menu_add_task": "➕ Assign New Task (Manager)",
+        "menu_add_task": "➕ Assign New Task",
         "menu_overlap": "🔀 Overlap & Workload Analysis",
         "menu_time_log": "⏱️ Time Logging & Progress",
         "menu_change_pw": "🔑 Change Password",
-        "menu_user_mgmt": "👤 User Management (General Manager)",
+        "menu_user_mgmt": "👤 User Management",
         "main_title": "📋 Project Management & Staff Progress System",
         "filter_project": "🔍 Filter by Project:",
         "filter_staff": "👤 Filter by Staff:",
@@ -161,13 +161,11 @@ else:
 
     t = translations[st.session_state.lang]
 
-    # CÁC TỪ KHÓA ĐƯỢC COI LÀ "TỔNG QUẢN LÝ / ADMIN CAO NHẤT"
     SUPER_ADMIN_ROLES = ["Quản lý", "Tổng quản lý", "Quản trị viên", "Admin", "Super Admin", "General Manager"]
-    SUB_ADMIN_ROLES = ["Quản lý phó", "Phó phòng", "Sub Manager"]
+    SUB_ADMIN_ROLES = ["Quản lý phó", "Phó phòng", "Sub Manager", "Associate/Senior", "Associate", "Senior"]
 
     role_val = st.session_state.role
 
-    # XÁC ĐỊNH VAI TRÒ DỰA TRÊN DỮ LIỆU
     is_super_admin = any(role.lower() == role_val.lower() for role in SUPER_ADMIN_ROLES)
     is_sub_admin = any(role.lower() == role_val.lower() for role in SUB_ADMIN_ROLES)
 
@@ -185,7 +183,6 @@ else:
         st.session_state.name, st.session_state.role, st.session_state.username = "", "", ""
         st.rerun()
 
-    # XÂY DỰNG MENU THEO PHÂN QUYỀN LINH HOẠT
     menu = [
         t["menu_overview"], 
         t["menu_overlap"], 
@@ -193,13 +190,9 @@ else:
         t["menu_change_pw"]
     ]
     
-    # Cả Tổng quản lý và Quản lý phó đều có quyền tạo/sửa dự án và giao việc
     if is_super_admin or is_sub_admin:
         menu.insert(1, t["menu_project_mgmt"])
         menu.insert(2, t["menu_add_task"])
-    
-    # Chỉ Tổng quản lý / Admin mới có quyền Quản lý Nhân sự (tạo/xóa tài khoản)
-    if is_super_admin:
         menu.append(t["menu_user_mgmt"])
 
     choice = st.sidebar.selectbox("Function / Chức năng", menu)
@@ -257,7 +250,6 @@ else:
                         st.plotly_chart(fig_pie, use_container_width=True)
 
                     st.markdown("---")
-
                     st.write(t["project_progress_title"])
                     proj_progress = []
                     for p in df_filtered['project'].unique():
@@ -272,7 +264,6 @@ else:
                         st.progress(pp['progress'] / 100)
 
                     st.markdown("---")
-
                     if 'start_date' in df_filtered.columns and 'end_date' in df_filtered.columns:
                         df_gantt = df_filtered.dropna(subset=['start_date', 'end_date'])
                         if not df_gantt.empty:
@@ -436,7 +427,7 @@ else:
     elif choice == t["menu_add_task"]:
         st.subheader("Assign Task to Staff" if st.session_state.lang == "English" else "Giao nhiệm vụ cho Nhân viên")
         try:
-            res_us = execute_query(conn.table("users").select("name").neq("role", "Tổng quản lý"), ttl=0)
+            res_us = execute_query(conn.table("users").select("name").neq("role", "General Manager"), ttl=0)
             res_pj = execute_query(conn.table("projects").select("project_name").eq("status", "Đang triển khai"), ttl=0)
 
             staff_list = [u["name"] for u in res_us.data] if res_us.data else []
@@ -630,7 +621,7 @@ else:
 
     # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ ---
     elif choice == t["menu_user_mgmt"]:
-        st.subheader("User Account Management" if st.session_state.lang == "English" else "Quản lý tài khoản nhân sự")
+        st.subheader("User Account Management" if st.session_state.lang == "English" else "Quản lý nhân sự")
         try:
             res_users = execute_query(conn.table("users").select("username, name, role"), ttl=0)
             df_users = pd.DataFrame(res_users.data) if res_users.data else pd.DataFrame()
@@ -640,12 +631,13 @@ else:
                 st.dataframe(df_users, use_container_width=True)
 
             st.markdown("---")
-            st.write("➕ **Create New Account:**" if st.session_state.lang == "English" else "➕ **Thêm tài khoản mới:**")
+            st.write("➕ **Create New Account:**" if st.session_state.lang == "English" else "➕ **Thêm tài khoản nhân sự mới:**")
             with st.form("add_user_form", clear_on_submit=True):
                 new_username = st.text_input("Username (no spaces)" if st.session_state.lang == "English" else "Tài khoản (viết liền không dấu)")
                 new_password = st.text_input("Password" if st.session_state.lang == "English" else "Mật khẩu", type="password")
                 new_name = st.text_input("Full Name" if st.session_state.lang == "English" else "Họ và tên")
-                new_role = st.selectbox("Role" if st.session_state.lang == "English" else "Vai trò", ["Nhân viên", "Quản lý phó", "Tổng quản lý"])
+                
+                new_role = st.selectbox("Role" if st.session_state.lang == "English" else "Vai trò", ["Nhân viên", "Associate/Senior"])
 
                 if st.form_submit_button("Create Account" if st.session_state.lang == "English" else "Tạo tài khoản"):
                     clean_new_username = new_username.strip().lower()
@@ -663,17 +655,18 @@ else:
                         st.success(f"Account '{clean_new_username}' created!" if st.session_state.lang == "English" else f"Đã tạo tài khoản '{clean_new_username}'!")
                         st.rerun()
 
-            st.markdown("---")
-            st.write("🗑️ **Delete Account:**" if st.session_state.lang == "English" else "🗑️ **Xóa tài khoản:**")
-            if not df_users.empty:
-                del_options = [u for u in df_users["username"].tolist() if u != st.session_state.username]
-                if del_options:
-                    del_user = st.selectbox("Select account to delete" if st.session_state.lang == "English" else "Chọn tài khoản cần xóa", del_options)
-                    if st.button("Delete Account" if st.session_state.lang == "English" else "Xóa tài khoản"):
-                        conn.table("users").delete().eq("username", del_user).execute()
-                        st.success(f"Account '{del_user}' deleted!" if st.session_state.lang == "English" else f"Đã xóa tài khoản '{del_user}'!")
-                        st.rerun()
-                else:
-                    st.info("No other accounts to delete." if st.session_state.lang == "English" else "Không có tài khoản nào khác để xóa.")
+            if is_super_admin:
+                st.markdown("---")
+                st.write("🗑️ **Delete Account:**" if st.session_state.lang == "English" else "🗑️ **Xóa tài khoản (Chỉ General Manager):**")
+                if not df_users.empty:
+                    del_options = [u for u in df_users["username"].tolist() if u != st.session_state.username]
+                    if del_options:
+                        del_user = st.selectbox("Select account to delete" if st.session_state.lang == "English" else "Chọn tài khoản cần xóa", del_options)
+                        if st.button("Delete Account" if st.session_state.lang == "English" else "Xóa tài khoản"):
+                            conn.table("users").delete().eq("username", del_user).execute()
+                            st.success(f"Account '{del_user}' deleted!" if st.session_state.lang == "English" else f"Đã xóa tài khoản '{del_user}'!")
+                            st.rerun()
+                    else:
+                        st.info("No other accounts to delete." if st.session_state.lang == "English" else "Không có tài khoản nào khác để xóa.")
         except Exception as e:
             st.error(f"User Management Error: {e}" if st.session_state.lang == "English" else f"Lỗi quản lý nhân sự: {e}")
