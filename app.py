@@ -59,13 +59,15 @@ translations = {
         "main_title": "📋 Hệ thống Quản lý Dự án & Tiến độ Nhân sự",
         "filter_project": "🔍 Lọc theo Dự án:",
         "filter_staff": "👤 Lọc theo Nhân sự:",
+        "search_proj": "🔍 Tìm kiếm theo tên Dự án:",
+        "search_staff": "🔍 Tìm kiếm theo tên Nhân sự:",
         "all": "Tất cả (All)",
         "dashboard_title": "Bảng số liệu tổng quan & Dashboard Nâng cao",
         "project_progress_title": "📈 **Tiến độ % hoàn thành các Dự án:**",
         "gantt_title": "🗓️ **Biểu đồ Lịch trình công việc (Gantt Chart):**",
         "detailed_task_list": "📋 **Danh sách chi tiết công việc:**",
         "no_data": "Hiện tại chưa có dữ liệu công việc nào.",
-        "filter_warning": "Không có dữ liệu phù hợp với bộ lọc đã chọn.",
+        "filter_warning": "Không có dữ liệu phù hợp với bộ lọc/tìm kiếm đã chọn.",
     },
     "English": {
         "lang_label": "🌐 Language / Ngôn ngữ",
@@ -99,13 +101,15 @@ translations = {
         "main_title": "📋 Project Management & Staff Progress System",
         "filter_project": "🔍 Filter by Project:",
         "filter_staff": "👤 Filter by Staff:",
+        "search_proj": "🔍 Search by Project Name:",
+        "search_staff": "🔍 Search by Staff Name:",
         "all": "All",
         "dashboard_title": "Overview Report & Advanced Dashboard",
         "project_progress_title": "📈 **Project Completion Progress (%):**",
         "gantt_title": "🗓️ **Task Timeline (Gantt Chart):**",
         "detailed_task_list": "📋 **Detailed Task List:**",
         "no_data": "No task data available.",
-        "filter_warning": "No data matches the selected filters.",
+        "filter_warning": "No data matches the selected filters/search.",
     }
 }
 
@@ -198,7 +202,7 @@ else:
     choice = st.sidebar.selectbox("Function / Chức năng", menu)
     st.title(t["main_title"])
 
-    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN ---
+    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN (CÓ TÌM KIẾM + BỘ LỌC) ---
     if choice == t["menu_overview"]:
         st.subheader(t["dashboard_title"])
         try:
@@ -209,20 +213,21 @@ else:
                 st.info(t["no_data"])
             else:
                 st.markdown("---")
-                col_f1, col_f2 = st.columns(2)
-                projects_list = [t["all"]] + sorted(df['project'].unique().tolist())
-                staff_list_filter = [t["all"]] + sorted(df['assignee'].unique().tolist())
-
-                with col_f1:
-                    selected_proj_filter = st.selectbox(t["filter_project"], projects_list)
-                with col_f2:
-                    selected_staff_filter = st.selectbox(t["filter_staff"], staff_list_filter)
+                
+                # Thanh tìm kiếm tự do theo tên Dự án hoặc Tên Nhân sự
+                col_s1, col_s2 = st.columns(2)
+                with col_s1:
+                    search_proj_kw = st.text_input(t["search_proj"], placeholder="Nhập từ khóa tên dự án...")
+                with col_s2:
+                    search_staff_kw = st.text_input(t["search_staff"], placeholder="Nhập tên nhân viên...")
 
                 df_filtered = df.copy()
-                if selected_proj_filter != t["all"]:
-                    df_filtered = df_filtered[df_filtered['project'] == selected_proj_filter]
-                if selected_staff_filter != t["all"]:
-                    df_filtered = df_filtered[df_filtered['assignee'] == selected_staff_filter]
+                
+                # Lọc theo từ khóa tìm kiếm (không phân biệt chữ hoa chữ thường)
+                if search_proj_kw.strip():
+                    df_filtered = df_filtered[df_filtered['project'].str.contains(search_proj_kw.strip(), case=False, na=False)]
+                if search_staff_kw.strip():
+                    df_filtered = df_filtered[df_filtered['assignee'].str.contains(search_staff_kw.strip(), case=False, na=False)]
 
                 if df_filtered.empty:
                     st.warning(t["filter_warning"])
@@ -298,7 +303,12 @@ else:
 
             with tab_list:
                 if not df_pj.empty:
-                    st.dataframe(df_pj, use_container_width=True)
+                    # Thanh tìm kiếm danh sách dự án
+                    search_pj_box = st.text_input("🔍 Tìm kiếm nhanh dự án:", placeholder="Nhập tên dự án...")
+                    df_pj_display = df_pj.copy()
+                    if search_pj_box.strip():
+                        df_pj_display = df_pj_display[df_pj_display['project_name'].str.contains(search_pj_box.strip(), case=False, na=False)]
+                    st.dataframe(df_pj_display, use_container_width=True)
                 else:
                     st.info("No projects created yet." if st.session_state.lang == "English" else "Chưa có dự án nào được khởi tạo.")
                 
@@ -383,42 +393,51 @@ else:
                 else:
                     st.write("📋 **All Tasks (Editable & Deletable):**" if st.session_state.lang == "English" else "📋 **Danh sách tất cả nhiệm vụ (Có thể chỉnh sửa hoặc xóa):**")
                     
-                    task_select_label = df_all_tasks.apply(lambda r: f"[ID: {r['id']}] [{r['project']}] {r['task_name']} ({r['assignee']})", axis=1).tolist()
-                    chosen_task_str = st.selectbox("Select task to edit/delete:" if st.session_state.lang == "English" else "Chọn đầu việc để chỉnh sửa/xóa:", task_select_label)
-                    
-                    chosen_task_id = int(chosen_task_str.split("]")[0].replace("[ID: ", ""))
-                    task_row = df_all_tasks[df_all_tasks['id'] == chosen_task_id].iloc[0]
+                    search_task_kw = st.text_input("🔍 Tìm kiếm nhiệm vụ (theo tên task, dự án hoặc nhân sự):", placeholder="Nhập từ khóa...")
+                    df_tasks_display = df_all_tasks.copy()
+                    if search_task_kw.strip():
+                        mask = df_tasks_display.apply(lambda row: row.astype(str).str.contains(search_task_kw.strip(), case=False).any(), axis=1)
+                        df_tasks_display = df_tasks_display[mask]
 
-                    with st.form("edit_single_task_form"):
-                        ed_task_name = st.text_input("Task Name" if st.session_state.lang == "English" else "Tên đầu việc", value=task_row['task_name'])
-                        ed_status = st.selectbox("Status" if st.session_state.lang == "English" else "Trạng thái", ["Chưa bắt đầu", "Đang làm", "Hoàn thành"], index=["Chưa bắt đầu", "Đang làm", "Hoàn thành"].index(task_row['status']) if task_row['status'] in ["Chưa bắt đầu", "Đang làm", "Hoàn thành"] else 0)
-                        ed_hours = st.number_input("Hours Spent" if st.session_state.lang == "English" else "Số giờ đã làm", value=float(task_row['hours_spent']), min_value=0.0, step=0.5)
+                    if df_tasks_display.empty:
+                        st.warning("Không tìm thấy nhiệm vụ phù hợp.")
+                    else:
+                        task_select_label = df_tasks_display.apply(lambda r: f"[ID: {r['id']}] [{r['project']}] {r['task_name']} ({r['assignee']})", axis=1).tolist()
+                        chosen_task_str = st.selectbox("Chọn đầu việc để chỉnh sửa/xóa:", task_select_label)
                         
-                        t_start_default = datetime.strptime(task_row['start_date'], "%Y-%m-%d").date() if task_row.get('start_date') else datetime.now().date()
-                        t_end_default = datetime.strptime(task_row['end_date'], "%Y-%m-%d").date() if task_row.get('end_date') else datetime.now().date()
+                        chosen_task_id = int(chosen_task_str.split("]")[0].replace("[ID: ", ""))
+                        task_row = df_all_tasks[df_all_tasks['id'] == chosen_task_id].iloc[0]
 
-                        col_ts1, col_ts2 = st.columns(2)
-                        with col_ts1:
-                            ed_start_date = st.date_input("Start Date" if st.session_state.lang == "English" else "Ngày bắt đầu công việc", value=t_start_default)
-                        with col_ts2:
-                            ed_end_date = st.date_input("End Date" if st.session_state.lang == "English" else "Ngày kết thúc dự kiến", value=t_end_default)
+                        with st.form("edit_single_task_form"):
+                            ed_task_name = st.text_input("Task Name" if st.session_state.lang == "English" else "Tên đầu việc", value=task_row['task_name'])
+                            ed_status = st.selectbox("Status" if st.session_state.lang == "English" else "Trạng thái", ["Chưa bắt đầu", "Đang làm", "Hoàn thành"], index=["Chưa bắt đầu", "Đang làm", "Hoàn thành"].index(task_row['status']) if task_row['status'] in ["Chưa bắt đầu", "Đang làm", "Hoàn thành"] else 0)
+                            ed_hours = st.number_input("Hours Spent" if st.session_state.lang == "English" else "Số giờ đã làm", value=float(task_row['hours_spent']), min_value=0.0, step=0.5)
+                            
+                            t_start_default = datetime.strptime(task_row['start_date'], "%Y-%m-%d").date() if task_row.get('start_date') else datetime.now().date()
+                            t_end_default = datetime.strptime(task_row['end_date'], "%Y-%m-%d").date() if task_row.get('end_date') else datetime.now().date()
 
-                        if st.form_submit_button("Update Task" if st.session_state.lang == "English" else "Cập nhật nhiệm vụ này"):
-                            conn.table("tasks").update({
-                                "task_name": ed_task_name.strip(),
-                                "status": ed_status,
-                                "hours_spent": ed_hours,
-                                "start_date": str(ed_start_date),
-                                "end_date": str(ed_end_date),
-                                "date_updated": datetime.now().strftime("%Y-%m-%d")
-                            }).eq("id", chosen_task_id).execute()
-                            st.success("Task updated successfully!" if st.session_state.lang == "English" else "Đã cập nhật nhiệm vụ thành công!")
+                            col_ts1, col_ts2 = st.columns(2)
+                            with col_ts1:
+                                ed_start_date = st.date_input("Start Date" if st.session_state.lang == "English" else "Ngày bắt đầu công việc", value=t_start_default)
+                            with col_ts2:
+                                ed_end_date = st.date_input("End Date" if st.session_state.lang == "English" else "Ngày kết thúc dự kiến", value=t_end_default)
+
+                            if st.form_submit_button("Update Task" if st.session_state.lang == "English" else "Cập nhật nhiệm vụ này"):
+                                conn.table("tasks").update({
+                                    "task_name": ed_task_name.strip(),
+                                    "status": ed_status,
+                                    "hours_spent": ed_hours,
+                                    "start_date": str(ed_start_date),
+                                    "end_date": str(ed_end_date),
+                                    "date_updated": datetime.now().strftime("%Y-%m-%d")
+                                }).eq("id", chosen_task_id).execute()
+                                st.success("Task updated successfully!" if st.session_state.lang == "English" else "Đã cập nhật nhiệm vụ thành công!")
+                                st.rerun()
+
+                        if st.button("🗑️ Delete This Task" if st.session_state.lang == "English" else "🗑️ Xóa nhiệm vụ này"):
+                            conn.table("tasks").delete().eq("id", chosen_task_id).execute()
+                            st.success(f"Task ID {chosen_task_id} deleted successfully!" if st.session_state.lang == "English" else f"Đã xóa nhiệm vụ ID: {chosen_task_id} thành công!")
                             st.rerun()
-
-                    if st.button("🗑️ Delete This Task" if st.session_state.lang == "English" else "🗑️ Xóa nhiệm vụ này"):
-                        conn.table("tasks").delete().eq("id", chosen_task_id).execute()
-                        st.success(f"Task ID {chosen_task_id} deleted successfully!" if st.session_state.lang == "English" else f"Đã xóa nhiệm vụ ID: {chosen_task_id} thành công!")
-                        st.rerun()
 
         except Exception as e:
             st.error(f"Management Error: {e}" if st.session_state.lang == "English" else f"Lỗi quản lý dự án: {e}")
@@ -480,23 +499,21 @@ else:
             if df_tasks.empty:
                 st.info("No active tasks found." if st.session_state.lang == "English" else "Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu.")
             else:
+                # Thanh tìm kiếm trực tiếp cho phần phân tích chồng chéo
                 col_of1, col_of2 = st.columns(2)
-                p_options_ol = [t["all"]] + sorted(df_tasks['project'].unique().tolist())
-                s_options_ol = [t["all"]] + sorted(df_tasks['assignee'].unique().tolist())
-
                 with col_of1:
-                    sel_p_ol = st.selectbox("Filter by Project:" if st.session_state.lang == "English" else "Lọc theo Dự án (Phân tích):", p_options_ol, key="ol_p")
+                    search_ol_proj = st.text_input("🔍 Tìm kiếm theo Dự án (Phân tích):", placeholder="Nhập tên dự án...")
                 with col_of2:
-                    sel_s_ol = st.selectbox("Filter by Staff:" if st.session_state.lang == "English" else "Lọc theo Nhân sự (Phân tích):", s_options_ol, key="ol_s")
+                    search_ol_staff = st.text_input("🔍 Tìm kiếm theo Nhân sự (Phân tích):", placeholder="Nhập tên nhân sự...")
 
                 df_tasks_filtered = df_tasks.copy()
-                if sel_p_ol != t["all"]:
-                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['project'] == sel_p_ol]
-                if sel_s_ol != t["all"]:
-                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['assignee'] == sel_s_ol]
+                if search_ol_proj.strip():
+                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['project'].str.contains(search_ol_proj.strip(), case=False, na=False)]
+                if search_ol_staff.strip():
+                    df_tasks_filtered = df_tasks_filtered[df_tasks_filtered['assignee'].str.contains(search_ol_staff.strip(), case=False, na=False)]
 
                 if df_tasks_filtered.empty:
-                    st.warning("No data matches the selected filters." if st.session_state.lang == "English" else "Không có dữ liệu phù hợp với bộ lọc.")
+                    st.warning("No data matches the selected filters/search." if st.session_state.lang == "English" else "Không có dữ liệu phù hợp với tìm kiếm.")
                 else:
                     df_user_projects = df_tasks_filtered.groupby('assignee')['project'].nunique().reset_index()
                     df_user_projects.columns = ['Staff' if st.session_state.lang == "English" else 'Nhân sự', 'Active Projects' if st.session_state.lang == "English" else 'Số lượng Dự án đang phụ trách']
@@ -627,11 +644,16 @@ else:
             df_users = pd.DataFrame(res_users.data) if res_users.data else pd.DataFrame()
 
             if not df_users.empty:
-                st.write("📋 **Existing Accounts:**" if st.session_state.lang == "English" else "📋 **Danh sách tài khoản hiện có:**")
-                st.dataframe(df_users, use_container_width=True)
+                # Thanh tìm kiếm tài khoản nhân sự
+                search_user_box = st.text_input("🔍 Tìm kiếm tài khoản nhân sự:", placeholder="Nhập tên hoặc username...")
+                df_users_display = df_users.copy()
+                if search_user_box.strip():
+                    mask_u = df_users_display.apply(lambda row: row.astype(str).str.contains(search_user_box.strip(), case=False).any(), axis=1)
+                    df_users_display = df_users_display[mask_u]
+                st.dataframe(df_users_display, use_container_width=True)
 
             st.markdown("---")
-            st.write("➕ **Create New Account:**" if st.session_state.lang == "English" else "➕ **Thêm tài khoản nhân sự mới:**")
+            st.write("➕ **Create New Account:**" if st.session_state.lang == "English" else "➕ **Thêm tài khoản nhân viên mới:**")
             with st.form("add_user_form", clear_on_submit=True):
                 new_username = st.text_input("Username (no spaces)" if st.session_state.lang == "English" else "Tài khoản (viết liền không dấu)")
                 new_password = st.text_input("Password" if st.session_state.lang == "English" else "Mật khẩu", type="password")
