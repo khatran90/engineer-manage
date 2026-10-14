@@ -64,7 +64,7 @@ translations = {
         "project_progress_title": "📈 **Tiến độ % hoàn thành các Dự án:**",
         "gantt_title": "🗓️ **Biểu đồ Lịch trình công việc (Gantt Chart):**",
         "detailed_task_list": "📋 **Danh sách chi tiết công việc:**",
-        "no_data": "Hiện tại chưa có dữ liệu công việc nào.",
+        "no_data": "Hiện tại chưa có dữ liệu công việc nào thuộc quyền quản lý của bạn.",
         "filter_warning": "Không có dữ liệu phù hợp với bộ lọc/tìm kiếm đã chọn.",
     },
     "English": {
@@ -104,7 +104,7 @@ translations = {
         "project_progress_title": "📈 **Project Completion Progress (%):**",
         "gantt_title": "🗓️ **Task Timeline (Gantt Chart):**",
         "detailed_task_list": "📋 **Detailed Task List:**",
-        "no_data": "No task data available.",
+        "no_data": "No task data available under your management.",
         "filter_warning": "No data matches the selected filters/search.",
     }
 }
@@ -198,19 +198,38 @@ else:
     choice = st.sidebar.selectbox("Function / Chức năng", menu)
     st.title(t["main_title"])
 
-    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN (CÓ DROPDOWN LỌC + TÌM KIẾM) ---
+    # --- HÀM BẢO MẬT: LỌC DỮ LIỆU THEO PHÂN QUYỀN VAI TRÒ ---
+    def get_scoped_tasks_df():
+        res = execute_query(conn.table("tasks").select("*"), ttl=0)
+        df_all = pd.DataFrame(res.data) if res.data else pd.DataFrame()
+        
+        if df_all.empty:
+            return pd.DataFrame()
+            
+        if is_super_admin:
+            # General Manager/Admin thấy tất cả
+            return df_all
+        elif is_sub_admin:
+            # Associate/Senior chỉ thấy các dự án/nhiệm vụ do chính họ gán/tạo
+            if 'created_by' in df_all.columns:
+                return df_all[(df_all['created_by'] == st.session_state.name) | (df_all['assignee'] == st.session_state.name)]
+            else:
+                return df_all[df_all['assignee'] == st.session_state.name]
+        else:
+            # Nhân viên chỉ thấy nhiệm vụ giao cho họ
+            return df_all[df_all['assignee'] == st.session_state.name]
+
+    # --- CHỨC NĂNG: BÁO CÁO TỔNG QUAN ---
     if choice == t["menu_overview"]:
         st.subheader(t["dashboard_title"])
         try:
-            res_tasks = execute_query(conn.table("tasks").select("*"), ttl=0)
-            df = pd.DataFrame(res_tasks.data) if res_tasks.data else pd.DataFrame()
+            df = get_scoped_tasks_df()
 
             if df.empty:
                 st.info(t["no_data"])
             else:
                 st.markdown("---")
                 
-                # Kết hợp Bộ lọc Dropdown chính xác + Thanh tìm kiếm bổ trợ
                 col_f1, col_f2 = st.columns(2)
                 projects_list = [t["all"]] + sorted(df['project'].unique().tolist())
                 staff_list_filter = [t["all"]] + sorted(df['assignee'].unique().tolist())
@@ -300,6 +319,12 @@ else:
             res_pj = execute_query(conn.table("projects").select("*").order("id", desc=True), ttl=0)
             df_pj = pd.DataFrame(res_pj.data) if res_pj.data else pd.DataFrame()
 
+            # Lọc dự án hiển thị theo quyền
+            df_scoped_tasks = get_scoped_tasks_df()
+            if not is_super_admin and not df_scoped_tasks.empty:
+                allowed_projects = df_scoped_tasks['project'].unique().tolist()
+                df_pj = df_pj[df_pj['project_name'].isin(allowed_projects)]
+
             tab_labels = ["📋 Project List", "✏️ Edit / Delete Project", "🛠️ Task Management"] if st.session_state.lang == "English" else ["📋 Danh sách dự án", "✏️ Sửa / Xóa Dự án", "🛠️ Quản lý Nhiệm vụ"]
             tab_list, tab_edit, tab_tasks = st.tabs(tab_labels)
 
@@ -311,7 +336,7 @@ else:
                         df_pj_display = df_pj_display[df_pj_display['project_name'].str.contains(search_pj_box.strip(), case=False, na=False)]
                     st.dataframe(df_pj_display, use_container_width=True)
                 else:
-                    st.info("No projects created yet." if st.session_state.lang == "English" else "Chưa có dự án nào được khởi tạo.")
+                    st.info("No projects created yet." if st.session_state.lang == "English" else "Chưa có dự án nào thuộc quyền quản lý của bạn.")
                 
                 st.markdown("---")
                 st.write("➕ **Create New Project:**" if st.session_state.lang == "English" else "➕ **Khởi tạo Dự án mới:**")
@@ -386,11 +411,10 @@ else:
                         st.rerun()
 
             with tab_tasks:
-                res_all_tasks = execute_query(conn.table("tasks").select("*"), ttl=0)
-                df_all_tasks = pd.DataFrame(res_all_tasks.data) if res_all_tasks.data else pd.DataFrame()
+                df_all_tasks = get_scoped_tasks_df()
 
                 if df_all_tasks.empty:
-                    st.info("No tasks found in the system." if st.session_state.lang == "English" else "Chưa có nhiệm vụ nào trên hệ thống.")
+                    st.info("No tasks found in the system." if st.session_state.lang == "English" else "Chưa có nhiệm vụ nào thuộc quyền quản lý.")
                 else:
                     st.write("📋 **All Tasks (Editable & Deletable):**" if st.session_state.lang == "English" else "📋 **Danh sách tất cả nhiệm vụ (Có thể chỉnh sửa hoặc xóa):**")
                     
@@ -443,7 +467,7 @@ else:
         except Exception as e:
             st.error(f"Management Error: {e}" if st.session_state.lang == "English" else f"Lỗi quản lý dự án: {e}")
 
-    # --- CHỨC NĂNG: GIAO VIỆC MỚI ---
+    # --- CHỨC NĂNG: GIAO VIỆC MỚI (LƯU VẾT CREATED_BY) ---
     elif choice == t["menu_add_task"]:
         st.subheader("Assign Task to Staff" if st.session_state.lang == "English" else "Giao nhiệm vụ cho Nhân viên")
         try:
@@ -483,22 +507,24 @@ else:
                                 "hours_spent": 0.0,
                                 "date_updated": datetime.now().strftime("%Y-%m-%d"),
                                 "start_date": str(task_start),
-                                "end_date": str(task_end)
+                                "end_date": str(task_end),
+                                "created_by": st.session_state.name  # Lưu vết người tạo task
                             }).execute()
                             st.success(f"Assigned '{task_title}' to {assignee_select} under project [{project_select}]!" if st.session_state.lang == "English" else f"Đã giao việc '{task_title}' cho {assignee_select} thuộc dự án [{project_select}]!")
                             st.rerun()
         except Exception as e:
             st.error(f"System Error: {e}" if st.session_state.lang == "English" else f"Lỗi hệ thống: {e}")
 
-    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO (CÓ DROPDOWN LỌC THEO DỰ ÁN VÀ NHÂN SỰ) ---
+    # --- CHỨC NĂNG: PHÂN TÍCH CHỒNG CHÉO ---
     elif choice == t["menu_overlap"]:
         st.subheader("Workload Analysis & Project Overlap" if st.session_state.lang == "English" else "Phân tích Tải công việc & Sự chồng chéo Dự án của Nhân sự")
         try:
-            res_tasks = execute_query(conn.table("tasks").select("*").neq("status", "Hoàn thành"), ttl=0)
-            df_tasks = pd.DataFrame(res_tasks.data) if res_tasks.data else pd.DataFrame()
-            
+            df_tasks = get_scoped_tasks_df()
+            if not df_tasks.empty:
+                df_tasks = df_tasks[df_tasks['status'] != "Hoàn thành"]
+
             if df_tasks.empty:
-                st.info("No active tasks found." if st.session_state.lang == "English" else "Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu.")
+                st.info("No active tasks found." if st.session_state.lang == "English" else "Hiện không có công việc nào đang dở dang hoặc chưa bắt đầu thuộc quyền quản lý của bạn.")
             else:
                 col_of1, col_of2 = st.columns(2)
                 p_options_ol = [t["all"]] + sorted(df_tasks['project'].unique().tolist())
@@ -566,13 +592,7 @@ else:
     elif choice == t["menu_time_log"]:
         st.subheader("Daily Timesheet & Progress Update" if st.session_state.lang == "English" else "Cập nhật báo cáo tiến độ công việc hàng ngày")
         try:
-            res_all = execute_query(conn.table("tasks").select("*"), ttl=0)
-            df_all = pd.DataFrame(res_all.data) if res_all.data else pd.DataFrame()
-
-            if not (is_super_admin or is_sub_admin):
-                df_display = df_all[df_all['assignee'] == st.session_state.name] if not df_all.empty else pd.DataFrame()
-            else:
-                df_display = df_all
+            df_display = get_scoped_tasks_df()
 
             if df_display.empty:
                 st.warning("You have no assigned tasks or the list is empty." if st.session_state.lang == "English" else "Bạn chưa được giao bất kỳ công việc nào hoặc danh sách trống.")
@@ -639,7 +659,7 @@ else:
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-    # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ (BỔ SUNG THÊM TÍNH NĂNG SỬA VAI TRÒ) ---
+    # --- CHỨC NĂNG: QUẢN LÝ NHÂN SỰ ---
     elif choice == t["menu_user_mgmt"]:
         st.subheader("User Account Management" if st.session_state.lang == "English" else "Quản lý nhân sự")
         try:
@@ -654,14 +674,12 @@ else:
                     df_users_display = df_users_display[mask_u]
                 st.dataframe(df_users_display, use_container_width=True)
 
-            # --- TÍNH NĂNG MỚI: SỬA VAI TRÒ TÀI KHOẢN ---
             if not df_users.empty:
                 st.markdown("---")
                 st.write("✏️ **Cập nhật / Sửa vai trò nhân sự:**")
                 with st.form("update_user_role_form"):
                     selected_target_user = st.selectbox("Chọn tài khoản cần đổi vai trò:", df_users["username"].tolist())
                     
-                    # Lấy vai trò hiện tại của tài khoản đang chọn
                     current_role_val = df_users[df_users["username"] == selected_target_user]["role"].values[0]
                     role_options_list = ["Nhân viên", "Associate/Senior", "General Manager"]
                     curr_idx = role_options_list.index(current_role_val) if current_role_val in role_options_list else 0
